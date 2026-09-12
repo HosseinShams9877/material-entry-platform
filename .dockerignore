@@ -1,6 +1,9 @@
 node_modules
 .next
 .git
+.env
+.env.local
+.env*.local
 examples
 skills
 mini-services

@@ -43,9 +43,12 @@ RUN addgroup -S smi && adduser -S smi -G smi \
 COPY --from=builder --chown=smi:smi /app/.next/standalone ./
 COPY --from=builder --chown=smi:smi /app/prisma ./prisma
 COPY --from=builder --chown=smi:smi /app/scripts ./scripts
+# Prisma CLI + موتورها برای «migrate deploy» آفلاین در Startup (بدون وابستگی به شبکه)
+COPY --from=builder --chown=smi:smi /app/node_modules/prisma ./node_modules/prisma
+COPY --from=builder --chown=smi:smi /app/node_modules/@prisma/engines ./node_modules/@prisma/engines
 
 USER smi
 EXPOSE 3000
 
 # در Startup: اعمال Migrationها سپس راه‌اندازی سرور standalone
-CMD ["sh", "-c", "npx prisma migrate deploy --schema prisma/schema.active.prisma || npx prisma db push --skip-generate --schema prisma/schema.active.prisma; node server.js"]
+CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy --schema prisma/schema.active.prisma || node node_modules/prisma/build/index.js db push --skip-generate --schema prisma/schema.active.prisma; node server.js"]
