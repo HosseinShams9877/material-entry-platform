@@ -1,0 +1,25 @@
+import { z } from 'zod'
+import { db } from '@/lib/db'
+import { apiHandler, ok, ApiError } from '@/lib/api'
+import { canAccessEntry } from '@/lib/scope'
+import { closeEntry } from '@/lib/workflow'
+
+const noteSchema = z.object({ note: z.string().max(2000).optional().nullable() })
+
+/** بستن ثبت — مجوز: entry.close (مدیر پروژه/کارگاه/ادمین) */
+export const POST = apiHandler(
+  async ({ user, body, params, ip, userAgent }) => {
+    const { id } = params
+    const entry = await db.materialEntry.findUnique({ where: { id } })
+    if (!entry || !(await canAccessEntry(user, entry))) {
+      throw new ApiError(404, 'NOT_FOUND', 'این ثبت یافت نشد یا به آن دسترسی ندارید.')
+    }
+    const updated = await closeEntry(entry, user, body.note ?? null, ip, userAgent)
+    return ok({ id: updated.id, status: updated.status })
+  },
+  {
+    permission: 'entry.close',
+    schema: noteSchema,
+    rateLimit: { limit: 30, windowMs: 60_000, scope: 'entry-stage' },
+  }
+)
