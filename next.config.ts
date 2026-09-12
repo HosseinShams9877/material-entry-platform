@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
+  // output: "standalone" فقط برای self-hosting (Docker/Windows) لازمه.
+  // روی Vercel غیرفعال می‌شه چون Vercel خودش سرورلس بیلد می‌کنه.
+  ...(process.env.VERCEL ? {} : { output: "standalone" as const }),
   // خطاهای TypeScript در Build مجاز نیستند — همه‌جا tsc پاس می‌شود
   typescript: {
     ignoreBuildErrors: false,

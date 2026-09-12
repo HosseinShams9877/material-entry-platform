@@ -8,10 +8,10 @@ import { logger } from '@/lib/logger'
 // منبع ذخیرهٔ فایل‌های خصوصی قابل جابه‌جایی:
 //   STORAGE_PROVIDER=local (پیش‌فرض) → فایل‌سیستم محلی UPLOAD_DIR
 //   STORAGE_PROVIDER=s3             → هر سرویس سازگار S3 (AWS S3 / MinIO / Wasabi / …)
+//   STORAGE_PROVIDER=blob           → Vercel Blob (برای دیپلوی روی Vercel)
 // کلیدهای دسترسی فقط از Environment می‌آیند و هرگز در کد یا پاسخ API ظاهر نمی‌شوند.
-// منطق امضا: AWS Signature V4 (بدون وابستگی خارجی).
 
-export type StorageProviderKind = 'LOCAL' | 'S3'
+export type StorageProviderKind = 'LOCAL' | 'S3' | 'BLOB'
 
 export interface ObjectStorage {
   readonly provider: StorageProviderKind
@@ -21,7 +21,7 @@ export interface ObjectStorage {
   get(key: string): Promise<Buffer>
   /** حذف شیء — غایب بودن، خطا محسوب نمی‌شود */
   delete(key: string): Promise<void>
-  /** فقط ارائه‌دهندهٔ محلی: مسیر مطلق برای Streaming — S3 همیشه null */
+  /** فقط ارائه‌دهندهٔ محلی: مسیر مطلق برای Streaming — S3/Blob همیشه null */
   absolutePath(key: string): string | null
 }
 
@@ -61,14 +61,53 @@ class LocalObjectStorage implements ObjectStorage {
   }
 }
 
+// ─────────────────────────── Vercel Blob ───────────────────────────
+
+class VercelBlobStorage implements ObjectStorage {
+  readonly provider = 'BLOB' as const
+
+  private async sdk() {
+    // import تنبل تا SDK از باندل Edge خارج بماند
+    return await import('@vercel/blob')
+  }
+
+  async put(key: string, bytes: Buffer): Promise<void> {
+    const { put } = await this.sdk()
+    await put(key, bytes, {
+      access: 'public', // یا 'private' اگر سیاست شما الزام می‌کند
+      addRandomSuffix: false,
+    })
+  }
+
+  async get(key: string): Promise<Buffer> {
+    const { get } = await this.sdk()
+    const result = await get(key, { access: 'public' })
+    if (!result || !result.stream) throw new Error('NOT_FOUND')
+    const chunks: Uint8Array[] = []
+    // @ts-expect-error — ReadableStream در Node 18+ قابل async-iterate است
+    for await (const chunk of result.stream) {
+      chunks.push(chunk)
+    }
+    return Buffer.concat(chunks)
+  }
+
+  async delete(key: string): Promise<void> {
+    const { del } = await this.sdk()
+    await del(key).catch(() => undefined)
+  }
+
+  absolutePath(): string | null {
+    return null // Blob فقط از مسیر API سرو می‌شود
+  }
+}
+
 // ─────────────────────────── S3 / MinIO (SigV4) ───────────────────────────
 
-const S3_ENDPOINT = process.env.S3_ENDPOINT?.trim() || '' // مثل http://minio:9000
+const S3_ENDPOINT = process.env.S3_ENDPOINT?.trim() || ''
 const S3_REGION = process.env.S3_REGION?.trim() || 'us-east-1'
 const S3_BUCKET = process.env.S3_BUCKET?.trim() || ''
 const S3_ACCESS_KEY = process.env.S3_ACCESS_KEY_ID?.trim() || ''
 const S3_SECRET_KEY = process.env.S3_SECRET_ACCESS_KEY?.trim() || ''
-/** MinIO و اکثر self-host ها path-style اند؛ AWS پیش‌فرض virtual-host */
 const S3_FORCE_PATH_STYLE = ['1', 'true', 'yes', 'on'].includes((process.env.S3_FORCE_PATH_STYLE ?? 'true').toLowerCase())
 
 function sha256Hex(data: Buffer | string): string {
@@ -102,11 +141,10 @@ class S3ObjectStorage implements ObjectStorage {
     return { url, hostHeader: url.host }
   }
 
-  /** ساخت هدرهای Authorization برای هر متد با SigV4 */
   private signedHeaders(method: string, key: string, payload: Buffer | null): HeadersInit {
     const { url, hostHeader } = this.endpointFor(key)
     const now = new Date()
-    const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '') // yyyymmddThhmmssZ
+    const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '')
     const dateStamp = amzDate.slice(0, 8)
     const payloadHash = payload ? sha256Hex(payload) : sha256Hex(Buffer.alloc(0))
 
@@ -168,14 +206,13 @@ class S3ObjectStorage implements ObjectStorage {
       method: 'DELETE',
       headers: this.signedHeaders('DELETE', key, null),
     }).catch(() => null)
-    // 204 یا 404 هر دو «حذف‌شده» محسوب می‌شوند
     if (res && !res.ok && res.status !== 404) {
       throw new Error(`S3_DELETE_FAILED_${res.status}`)
     }
   }
 
   absolutePath(): string | null {
-    return null // S3 فقط از مسیر API سرو می‌شود
+    return null
   }
 }
 
@@ -183,26 +220,22 @@ class S3ObjectStorage implements ObjectStorage {
 
 let instance: ObjectStorage | null = null
 
-/** ارائه‌دهندهٔ فعال Object Storage — بر اساس STORAGE_PROVIDER (پیش‌فرض local) */
 export function getStorage(): ObjectStorage {
   if (instance) return instance
   const raw = (process.env.STORAGE_PROVIDER ?? 'local').trim().toLowerCase()
   if (raw === 's3') {
     instance = new S3ObjectStorage()
+  } else if (raw === 'blob') {
+    instance = new VercelBlobStorage()
   } else if (raw === 'local') {
     instance = new LocalObjectStorage()
   } else {
-    throw new Error(`مقدار STORAGE_PROVIDER نامعتبر است: "${raw}". مقادیر مجاز: local | s3`)
+    throw new Error(`مقدار STORAGE_PROVIDER نامعتبر است: "${raw}". مقادیر مجاز: local | s3 | blob`)
   }
   logger.info('storage', `object storage ready: ${instance.provider}`)
   return instance
 }
 
-/**
- * خواندن فایل برای پاسخ‌دهی:
- * - Local → مسیر مطلق برای Streaming (بدون بارگذاری کامل در حافظه)
- * - S3 → بافر کامل (فایل‌های ما ≤۱۰MB + صوت ≤۱۵MB — امن)
- */
 export async function openStoredObject(
   key: string
 ): Promise<{ kind: 'stream'; absolutePath: string } | { kind: 'buffer'; bytes: Buffer }> {
@@ -217,7 +250,6 @@ export async function openStoredObject(
   return { kind: 'buffer', bytes: await storage.get(key) }
 }
 
-/** نوع فعال ذخیره‌سازی — برای ستون MetadatastorageProvider رکوردها */
 export function activeStorageProvider(): StorageProviderKind {
   return getStorage().provider
 }
