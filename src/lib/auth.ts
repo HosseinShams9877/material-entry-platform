@@ -1,123 +1,217 @@
-// ─────────────────────────────────────────────────────────────
-// Authentication — هش رمز عبور (scrypt)، نشست‌های سمت سرور،
-// Rate Limiting ورود، ثبت رویداد‌های امنیتی
-// ─────────────────────────────────────────────────────────────
-import { randomBytes, createHash } from 'crypto'
+import { createHash, randomBytes, scrypt as _scrypt, timingSafeEqual } from 'node:crypto'
+import { promisify } from 'node:util'
 import { cookies } from 'next/headers'
-import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
-import { hasPerm, rolePermissions, type Permission, type Role, ROLE_LABELS } from '@/lib/rbac'
+import { COOKIE_SECURE, IS_PROD, SESSION_BIND_UA, SESSION_SLIDING, SESSION_TTL_DAYS } from '@/lib/env'
+import { logger } from '@/lib/logger'
 
-export { hashPassword, verifyPassword } from '@/lib/password'
+const scrypt = promisify(_scrypt) as (
+  password: string | Buffer,
+  salt: string | Buffer,
+  keylen: number
+) => Promise<Buffer>
 
-const COOKIE_NAME = 'mdmes_session'
-const SESSION_HOURS = 8
+// ─────────────────────────── Password ───────────────────────────
 
-// ─── Session Management ───
+export async function hashPassword(password: string): Promise<string> {
+  const salt = randomBytes(16).toString('hex')
+  const derived = await scrypt(password, salt, 64)
+  return `scrypt:${salt}:${derived.toString('hex')}`
+}
+
+export async function verifyPassword(password: string, stored: string): Promise<boolean> {
+  try {
+    const [scheme, salt, hash] = stored.split(':')
+    if (scheme !== 'scrypt' || !salt || !hash) return false
+    const derived = await scrypt(password, salt, 64)
+    const expected = Buffer.from(hash, 'hex')
+    if (expected.length !== derived.length) return false
+    return timingSafeEqual(derived, expected)
+  } catch {
+    return false
+  }
+}
+
+// ─────────────────────────── Session ───────────────────────────
+
+/**
+ * نام کوکی:
+ * - Production: «__Host-smi_session» — پیشوند __Host- مرورگرها را ملزم می‌کند:
+ *   Secure، Path=/، بدون Domain (سازگار با معماری؛ ساب‌دامین جدا نداریم).
+ * - Development: «smi_session» (HTTP محلی بدون Secure)
+ */
+export const SESSION_COOKIE = IS_PROD ? '__Host-smi_session' : 'smi_session'
+
+const SESSION_TTL_MS = SESSION_TTL_DAYS * 24 * 60 * 60 * 1000
+
+export function hashToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex')
+}
+
 export interface SessionUser {
   id: string
   username: string
   fullName: string
-  role: Role
-  permissions: Permission[]
-  roleLabel: string
+  role: string
+  workshopId: string | null
+  phone: string | null
+  workerId: string | null
 }
 
-const sha256 = (s: string) => createHash('sha256').update(s).digest('hex')
-
-export async function createSession(userId: string, req: NextRequest): Promise<string> {
+/**
+ * ایجاد جلسه جدید — توکن خام فقط در کوکی می‌رود، هش آن در DB ذخیره می‌شود.
+ * فرصتِ پاک‌سازی نشست‌های منقضی هم در همین مسیر کم‌هزینه بررسی می‌شود.
+ */
+export async function createSession(
+  userId: string,
+  ip?: string | null,
+  userAgent?: string | null
+): Promise<{ token: string; expiresAt: Date }> {
   const token = randomBytes(32).toString('hex')
-  const ip = clientIp(req)
-  const userAgent = req.headers.get('user-agent') ?? undefined
+  const expiresAt = new Date(Date.now() + SESSION_TTL_MS)
   await db.session.create({
     data: {
-      tokenHash: sha256(token),
+      tokenHash: hashToken(token),
       userId,
-      ip,
-      userAgent: userAgent?.slice(0, 250),
-      expiresAt: new Date(Date.now() + SESSION_HOURS * 3600 * 1000),
+      ip: ip ?? null,
+      userAgent: userAgent ?? null,
+      expiresAt,
     },
   })
-  const jar = await cookies()
-  jar.set(COOKIE_NAME, token, {
+  void scheduleExpiredSessionCleanup()
+  return { token, expiresAt }
+}
+
+export async function setSessionCookie(token: string, expiresAt: Date): Promise<void> {
+  const store = await cookies()
+  store.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: false,
-    maxAge: SESSION_HOURS * 3600,
+    secure: COOKIE_SECURE,
+    expires: expiresAt,
     path: '/',
   })
-  return token
 }
 
-export async function destroySession(): Promise<void> {
-  const jar = await cookies()
-  const token = jar.get(COOKIE_NAME)?.value
-  if (token) {
-    await db.session.deleteMany({ where: { tokenHash: sha256(token) } })
-  }
-  jar.delete(COOKIE_NAME)
+export async function clearSessionCookie(): Promise<void> {
+  const store = await cookies()
+  store.set(SESSION_COOKIE, '', { httpOnly: true, sameSite: 'lax', secure: COOKIE_SECURE, expires: new Date(0), path: '/' })
 }
 
-export async function getSessionUser(): Promise<SessionUser | null> {
-  const jar = await cookies()
-  const token = jar.get(COOKIE_NAME)?.value
+/**
+ * خواندن کاربر فعلی از کوکی جلسه — مبنای تمام کنترل‌های دسترسی.
+ * userAgent (اختیاری): برای اتصال نشست به دستگاه — apiHandler همیشه پاس می‌دهد.
+ * نشست منقضی/ناسازگار → حذف از DB + null. کاربر غیرفعال → null (و حذف نشست).
+ * تمدید لغزان: کوکی با انقضای جدید بازنویسی می‌شود.
+ */
+export async function getSessionUser(userAgent?: string | null): Promise<SessionUser | null> {
+  const store = await cookies()
+  const token = store.get(SESSION_COOKIE)?.value
   if (!token) return null
+  const res = await getUserByToken(token, { userAgent })
+  if (res?.renewedExpiresAt) {
+    // تمدید لغزان — کوکی هم با انقضای جدید بازنویسی می‌شود
+    try {
+      store.set(SESSION_COOKIE, token, {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: COOKIE_SECURE,
+        expires: res.renewedExpiresAt,
+        path: '/',
+      })
+    } catch {
+      // بازنویسی کوکی در برخی مسیرها (مثلاً GET فایل) ممکن نیست — نشست همچنان معتبر است
+    }
+  }
+  return res?.user ?? null
+}
+
+export interface GetTokenResult {
+  user: SessionUser
+  renewedExpiresAt?: Date
+}
+
+export async function getUserByToken(
+  token: string,
+  opts?: { userAgent?: string | null }
+): Promise<GetTokenResult | null> {
   const session = await db.session.findUnique({
-    where: { tokenHash: sha256(token) },
+    where: { tokenHash: hashToken(token) },
     include: { user: true },
   })
   if (!session) return null
-  if (session.expiresAt < new Date()) {
-    await db.session.delete({ where: { id: session.id } }).catch(() => {})
+  if (session.expiresAt.getTime() < Date.now() || !session.user.isActive) {
+    await db.session.delete({ where: { id: session.id } }).catch(() => undefined)
     return null
   }
-  if (session.user.status !== 'ACTIVE') return null
+  // ضد Session Hijacking — اتصال نشست به User-Agent ثبت‌شده
+  if (SESSION_BIND_UA && session.userAgent && opts?.userAgent && session.userAgent !== opts.userAgent) {
+    logger.warn('auth', 'session UA mismatch — revoking', { sessionId: session.id })
+    await db.session.delete({ where: { id: session.id } }).catch(() => undefined)
+    return null
+  }
+  // تمدید لغزان — اگر بیش از نیمی از عمر نشست گذشته، تمدیدش کن (Refresh Token Effect)
+  let renewedExpiresAt: Date | undefined
+  if (SESSION_SLIDING) {
+    const ttlMs = SESSION_TTL_DAYS * 24 * 60 * 60 * 1000
+    const remaining = session.expiresAt.getTime() - Date.now()
+    if (remaining < ttlMs / 2) {
+      renewedExpiresAt = new Date(Date.now() + ttlMs)
+      await db.session
+        .update({ where: { id: session.id }, data: { expiresAt: renewedExpiresAt } })
+        .catch(() => undefined)
+    }
+  }
   return {
-    id: session.user.id,
-    username: session.user.username,
-    fullName: session.user.fullName,
-    role: session.user.role as Role,
-    permissions: rolePermissions(session.user.role),
-    roleLabel: ROLE_LABELS[session.user.role as Role] ?? session.user.role,
+    user: {
+      id: session.user.id,
+      username: session.user.username,
+      fullName: session.user.fullName,
+      role: session.user.role,
+      workshopId: session.user.workshopId,
+      phone: session.user.phone,
+      workerId: session.user.workerId,
+    },
+    renewedExpiresAt,
   }
 }
 
-export function clientIp(req: NextRequest): string {
-  return (
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    req.headers.get('x-real-ip') ||
-    'internal'
-  )
+export async function destroySession(): Promise<void> {
+  const store = await cookies()
+  const token = store.get(SESSION_COOKIE)?.value
+  if (token) {
+    await db.session.deleteMany({ where: { tokenHash: hashToken(token) } })
+  }
+  await clearSessionCookie()
 }
 
-// ─── Login Rate Limiting (in-memory, per username+IP) ───
-const attempts = new Map<string, { count: number; first: number }>()
-const WINDOW_MS = 15 * 60 * 1000
-const MAX_ATTEMPTS = 8
+/** خروج از «همهٔ نشست‌های» کاربر (مثلاً پس از مشکوک‌شدن به لو رفتن توکن) */
+export async function destroyAllUserSessions(userId: string): Promise<number> {
+  const res = await db.session.deleteMany({ where: { userId } })
+  return res.count
+}
 
-export function checkRateLimit(key: string): { ok: boolean; retryAfterMin?: number } {
+/**
+ * ابطال اجباری نشست‌های کاربر توسط ادمین:
+ * غیرفعال‌سازی حساب / تغییر رمز / تغییر نقش → همهٔ نشست‌ها باطل می‌شوند.
+ */
+export async function revokeUserSessions(userId: string): Promise<void> {
+  await db.session.deleteMany({ where: { userId } })
+}
+
+// ─────────────────────────── Cleanup نشست‌های منقضی ───────────────────────────
+
+const CLEANUP_INTERVAL_MS = 60 * 60 * 1000 // حداکثر هر یک ساعت یک‌بار
+let lastCleanup = 0
+
+/** پاک‌سازی دوره‌ای نشست‌های منقضی — throttle شده تا هزینهٔ DB ثابت بماند */
+export async function scheduleExpiredSessionCleanup(): Promise<void> {
   const now = Date.now()
-  const rec = attempts.get(key)
-  if (!rec || now - rec.first > WINDOW_MS) {
-    attempts.set(key, { count: 1, first: now })
-    return { ok: true }
+  if (now - lastCleanup < CLEANUP_INTERVAL_MS) return
+  lastCleanup = now
+  try {
+    await db.session.deleteMany({ where: { expiresAt: { lt: new Date() } } })
+  } catch {
+    // پاک‌سازی هرگز جریان اصلی (ورود) را نباید شکست دهد
   }
-  rec.count++
-  if (rec.count > MAX_ATTEMPTS) {
-    return { ok: false, retryAfterMin: Math.ceil((WINDOW_MS - (now - rec.first)) / 60000) }
-  }
-  return { ok: true }
-}
-
-export function clearRateLimit(key: string) {
-  attempts.delete(key)
-}
-
-// ─── Guards برای API Routes ───
-export function userCan(user: SessionUser, perm: Permission): boolean {
-  return hasPerm(user.role, perm)
-}
-
-export async function authenticate(): Promise<SessionUser | null> {
-  return getSessionUser()
 }

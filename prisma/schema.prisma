@@ -1,9 +1,3 @@
-// ─────────────────────────────────────────────────────────────
-// MED device MES + After-Sales — Database Schema (Relational, Normalized)
-// هر رکورد: PK / FK / Unique / Index / Timestamps
-// حذف فیزیکی ممنوع — فقط Archive/Deactivate
-// ─────────────────────────────────────────────────────────────
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -13,781 +7,986 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ============ کاربران، نقش‌ها، نشست‌ها ============
+// ─────────────────────────── Enums (SQLite: string fields with app-level validation) ───────────────────────────
+
+// Role: SUPER_ADMIN | ADMIN | PROJECT_MANAGER | WORKSHOP_MANAGER | WORKSHOP_SUPERVISOR
+// EntryType: PURCHASE | TRANSFER | LOAN | RETURN | OTHER
+// SourceType: SUPPLIER | WORKSHOP | OTHER
+// EntryStatus: DRAFT | SUBMITTED | PENDING_REVIEW | APPROVED | REJECTED | CORRECTION_REQUESTED | RESUBMITTED | LOCKED
+// WorkerKind: LABORER | DRIVER | FORKLIFT | CONTRACTOR | OTHER
+// AttachmentKind: INVOICE | WAYBILL | RECEIPT | OTHER
+
+// ─────────────────────────── Auth & RBAC ───────────────────────────
+
 model User {
-  id           String    @id @default(cuid())
-  username     String    @unique
-  fullName     String
+  id           String   @id @default(cuid())
+  username     String   @unique
   passwordHash String
-  role         String // ADMIN | PRODUCTION_MGR | OPERATOR | QC | WAREHOUSE | SERVICE_MGR | TECHNICIAN | SALES | VIEWER
-  status       String    @default("ACTIVE") // ACTIVE | DISABLED
+  fullName     String
+  role         String   @default("WORKSHOP_SUPERVISOR")
   phone        String?
-  lastLoginAt  DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  sessions     Session[]
-  ownedOrders          ProductionOrder[] @relation("OrderOwner")
-  createdOrders        ProductionOrder[] @relation("OrderCreator")
-  operatedSteps        StepRecord[]
-  operatedTests        TestResult[] @relation("TestOperator")
-  verifiedTests        TestResult[] @relation("TestVerifier")
-  inspections          IncomingInspection[]
-  performedReworks     ReworkRecord[]
-  performedReleases    ProductRelease[]
-  uploadedDocuments    Document[]
-  ticketUpdates        TicketUpdate[]
-  assignedTickets      ServiceTicket[]
-  approvedComplaints   Complaint[] @relation("ComplaintApprover")
-  regulatoryComplaints Complaint[] @relation("ComplaintReviewer")
-  performedRepairs     Repair[] @relation("RepairTechnician")
-  partUsages          DevicePartUsage[]
-  verifiedRepairs      Repair[] @relation("RepairQcVerifier")
-  stockMovements       StockMovement[] @relation("StockMovementUser")
+  email        String? // برای کانال اعلان ایمیل
+  workshopId   String? // کارگاه اصلی (برای سرپرست/نیروی اجرایی)
+  workerId     String? // لینک حساب به پروفایل کارگر — برای خوداظهاری نیروی اجرایی
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  workshop        Workshop?         @relation("UserWorkshopRef", fields: [workshopId], references: [id])
+  linkedWorker    Worker?           @relation("UserWorkerLink", fields: [workerId], references: [id])
+  sessions        Session[]
+  userWorkshops   UserWorkshop[]
+  userProjects    UserProject[]
+  entries         MaterialEntry[]   @relation("EntrySupervisor")
+  attachments     Attachment[]      @relation("AttachmentUploader")
+  auditLogs       AuditLog[]
+  notifications   Notification[]
+  approvalsDone   Approval[]
+  correctionsMade CorrectionRequest[] @relation("CorrectionRequester")
+  versionsChanged MaterialEntryVersion[]
+  stageLogs       EntryStageLog[]   @relation("StageLogActor")
+  roleAssignments UserRole[]
+  dailyTasksCreated  DailyTask[]      @relation("DailyTaskCreator")
+  dailyTasksDone     DailyTask[]      @relation("DailyTaskCompleter")
+  dailyItemDone      DailyTaskItem[]  @relation("DailyItemCompleter")
+  dailyAssignments   TaskAssignee[]
+  dailyReports       DailyReport[]    @relation("DailyReportReporter")
+  dailyReportsReviewed DailyReport[]  @relation("DailyReportReviewer")
+  dailyTaskComments  TaskComment[]
+  dailyItemPhotos    TaskItemPhoto[]
+  inventoryMovementsCreated InventoryMovement[] @relation("InventoryMovementCreator")
+  workerTransfersCreated    WorkerTransfer[]    @relation("WorkerTransferCreator")
+  checklistItemsDone        ProjectChecklistItem[] @relation("ChecklistItemDoneBy")
+  statementsCreated  ProgressStatement[] @relation("StatementCreator")
+  statementsApproved ProgressStatement[] @relation("StatementApprover")
+  statementsSigned   ProgressStatement[] @relation("StatementSigner")
+  statementsRejected ProgressStatement[] @relation("StatementRejecter")
+  purchasesRequested PurchaseRequest[]   @relation("PurchaseRequester")
+  purchasesApproved  PurchaseRequest[]   @relation("PurchaseApprover")
+  purchasesOrdered   PurchaseRequest[]   @relation("PurchaseOrderer")
+  purchasesReceived  PurchaseRequest[]   @relation("PurchaseReceiver")
+  purchasesRejected  PurchaseRequest[]   @relation("PurchaseRejecter")
+  workReportsCreated WorkReport[]        @relation("WorkReportCreator")
+  paymentsCreated    Payment[]           @relation("PaymentCreator")
+  receivablesCreated Receivable[]        @relation("ReceivableCreator")
+  workerGoalsCreated WorkerGoal[]        @relation("WorkerGoalCreator")
+
+  @@index([role])
+  @@index([workshopId])
+  @@index([workerId])
 }
 
 model Session {
   id        String   @id @default(cuid())
   tokenHash String   @unique
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   ip        String?
   userAgent String?
   expiresAt DateTime
   createdAt DateTime @default(now())
 
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId])
   @@index([expiresAt])
 }
 
-// ============ تأمین‌کنندگان، قطعات، لات‌ها ============
-model Supplier {
-  id           String      @id @default(cuid())
-  code         String      @unique
-  name         String
-  website      String? // نشانی وب‌سایت
-  isoCode      String? // کد در مستندات ایزو
-  contactPerson String?
-  phone        String?
-  email        String?
-  active       Boolean     @default(true)
-  components   Component[]
-  createdAt    DateTime    @default(now())
+model Role {
+  id       String  @id @default(cuid())
+  key      String  @unique // SUPER_ADMIN ...
+  nameFa   String
+  isSystem Boolean @default(true)
+
+  permissions RolePermission[]
+  users       UserRole[]
 }
 
-model Component {
-  id                     String               @id @default(cuid())
-  code                   String               @unique
-  name                   String
-  category               String? // گروه کالا (الکترونیک، پنوماتیک، …)
-  manufacturer           String?
-  specs                  String? // مشخصات فنی
-  unit                   String               @default("عدد")
-  criticality            String               @default("NORMAL") // CRITICAL | NORMAL
-  supplierId             String?
-  supplier               Supplier?            @relation(fields: [supplierId], references: [id])
-  alternativeComponentId String? // قطعه جایگزین مجاز
-  stockQty               Float                @default(0)
-  reservedQty            Float                @default(0)
-  minStock               Float                @default(0)
-  active                 Boolean              @default(true)
-  lots                   ComponentLot[]
-  bomItems               BomItem[]
-  usages                 DevicePartUsage[]
-  inspections            IncomingInspection[]
-  repairParts            RepairPart[]
-  orderMaterials         OrderMaterial[]
-  ncrs                   Nonconformity[]
-  movements              StockMovement[]
-  createdAt              DateTime             @default(now())
-  updatedAt              DateTime             @updatedAt
+model Permission {
+  id     String @id @default(cuid())
+  key    String @unique // entry.create ...
+  nameFa String
 
-  @@index([supplierId])
+  roles RolePermission[]
 }
 
-model ComponentLot {
-  id           String      @id @default(cuid())
-  componentId  String
-  component    Component   @relation(fields: [componentId], references: [id])
-  lotNumber    String
-  quantity     Float
-  remaining    Float
-  supplierId   String?
-  receivedAt   DateTime    @default(now())
-  inspectionId String?     @unique
-  inspections  IncomingInspection[]
-  status       String      @default("PENDING") // PENDING | APPROVED | REJECTED
-  usages       DevicePartUsage[]
-  movements    StockMovement[]
-  createdAt    DateTime    @default(now())
+model UserRole {
+  id   String @id @default(cuid())
+  userId String
+  roleId String
 
-  @@unique([componentId, lotNumber])
-  @@index([componentId])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
 }
 
-// ============ محصولات، نسخه‌ها، BOM ============
-model Product {
-  id             String            @id @default(cuid())
-  code           String            @unique
-  name           String
-  description    String?
-  category       String?
-  unit           String            @default("دستگاه")
-  warrantyMonths Int               @default(12)
-  hasFirmware    Boolean           @default(false)
-  active         Boolean           @default(true)
-  revisions      ProductRevision[]
-  devices        Device[]
-  orders         ProductionOrder[]
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
+model RolePermission {
+  id           String @id @default(cuid())
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
 }
 
-model ProductRevision {
-  id        String              @id @default(cuid())
-  productId String
-  product   Product             @relation(fields: [productId], references: [id])
-  revision  String // A | B | C
-  notes     String?
-  isActive  Boolean             @default(false)
-  boms      Bom[]
-  processSteps ProcessStepTemplate[]
-  devices   Device[]
-  orders    ProductionOrder[]
-  createdAt DateTime            @default(now())
+// ─────────────────────────── Structure ───────────────────────────
 
-  @@unique([productId, revision])
+model Workshop {
+  id        String   @id @default(cuid())
+  name      String
+  code      String   @unique
+  address   String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projects     Project[]
+  users        User[]         @relation("UserWorkshopRef")
+  userAccess   UserWorkshop[]
+  suppliers    Supplier[]
+  materials    Material[]
+  workers      Worker[]
+  inventoryStocks   InventoryStock[]
+  inventoryMovements InventoryMovement[]
+  workerTransfersIn  WorkerTransfer[] @relation("WorkerTransferTo")
+  workerTransfersOut WorkerTransfer[] @relation("WorkerTransferFrom")
+  entriesFrom  MaterialEntry[] @relation("EntryWorkshop")
+  entriesSource MaterialEntry[] @relation("EntrySourceWorkshop")
+  dailyTasks   DailyTask[]
+  dailyReports DailyReport[]
+  statements   ProgressStatement[] @relation("StatementWorkshop")
+  purchases    PurchaseRequest[]   @relation("PurchaseWorkshop")
+  workReports  WorkReport[]        @relation("WorkReportWorkshop")
+  receivables  Receivable[]
+
+  @@index([isActive])
 }
 
-model Bom {
-  id                String        @id @default(cuid())
-  productRevisionId String
-  productRevision   ProductRevision @relation(fields: [productRevisionId], references: [id])
-  revision          Int // 1, 2, 3 — نسخه BOM
-  status            String        @default("ACTIVE") // ACTIVE | RETIRED
-  effectiveDate     DateTime      @default(now())
-  notes             String?
-  createdById       String?
-  items             BomItem[]
-  orders            ProductionOrder[]
-  devices           Device[]
-  createdAt         DateTime      @default(now())
+model Project {
+  id        String   @id @default(cuid())
+  name      String
+  code      String   @unique
+  workshopId String?
+  clientName String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  @@unique([productRevisionId, revision])
+  workshop    Workshop?          @relation(fields: [workshopId], references: [id])
+  userAccess  UserProject[]
+  entries     MaterialEntryProject[]
+  dailyTasks  DailyTask[]
+  dailyReports DailyReport[]
+  statements  ProgressStatement[] @relation("StatementProject")
+  purchases   PurchaseRequest[]   @relation("PurchaseProject")
+  workReports WorkReport[]        @relation("WorkReportProject")
+  checklistItems ProjectChecklistItem[]
+  receivables Receivable[]
+
+  @@index([workshopId])
+  @@index([isActive])
 }
 
-model BomItem {
-  id                      String    @id @default(cuid())
-  bomId                   String
-  bom                     Bom       @relation(fields: [bomId], references: [id], onDelete: Cascade)
-  componentId             String
-  component               Component @relation(fields: [componentId], references: [id])
-  qty                     Float // تعداد در هر دستگاه
-  criticality             String    @default("NORMAL")
-  alternativeComponentId  String?
-  notes                   String?
-  sortOrder               Int       @default(0)
+model UserWorkshop {
+  id         String @id @default(cuid())
+  userId     String
+  workshopId String
 
-  @@unique([bomId, componentId])
-  @@index([bomId])
-  @@index([componentId])
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workshop Workshop @relation(fields: [workshopId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workshopId])
 }
 
-// ============ قالب فرآیند تولید (مراحل قابل تنظیم) ============
-model ProcessStepTemplate {
-  id                String          @id @default(cuid())
-  productRevisionId String
-  productRevision   ProductRevision @relation(fields: [productRevisionId], references: [id], onDelete: Cascade)
-  stepIndex         Int
-  name              String
-  description       String?
-  tools             String? // ابزار موردنیاز
-  inputs            String?
-  outputs           String?
-  acceptance        String? // معیار پذیرش
-  required          Boolean         @default(true)
-  needsQc           Boolean         @default(false)
-  isPackaging       Boolean         @default(false)
-
-  @@unique([productRevisionId, stepIndex])
-}
-
-// ============ سفارش تولید ============
-model ProductionOrder {
-  id                   String          @id @default(cuid())
-  code                 String          @unique // PO-1404-001
-  productId            String
-  product              Product         @relation(fields: [productId], references: [id])
-  productRevisionId    String
-  productRevision      ProductRevision @relation(fields: [productRevisionId], references: [id])
-  bomId                String?
-  bom                  Bom?            @relation(fields: [bomId], references: [id])
-  qty                  Int
-  priority             String          @default("NORMAL") // LOW | NORMAL | HIGH | URGENT
-  status               String          @default("DRAFT")
-  productionLine       String?
-  // ── مبدأ درخواست تولید ──
-  // DIRECTIVE: دستور مدیریتی | MINUTES: صورت‌جلسه | CUSTOMER_ORDER: سفارش مشتری | INTERNAL: داخلی
-  originType           String          @default("INTERNAL")
-  originRef            String? // شمارهٔ دستور / صورت‌جلسه / سفارش
-  originTitle          String? // موضوع/عنوان
-  originIssuedBy       String? // صادرکنندهٔ دستور (نام فرد)
-  originDate           DateTime? // تاریخ صدور/ابلاغ
-  customerId           String? // مشتری (برای مبدأ سفارش مشتری)
-  customer             Customer?      @relation("OrderCustomer", fields: [customerId], references: [id])
-  ownerId              String? // مسئول تولید
-  owner                User?           @relation("OrderOwner", fields: [ownerId], references: [id])
-  createdById          String
-  createdBy            User            @relation("OrderCreator", fields: [createdById], references: [id])
-  plannedStart         DateTime?
-  plannedEnd           DateTime?
-  actualStart          DateTime?
-  actualEnd            DateTime?
-  notes                String?
-  materialOverrideById String?
-  materialOverrideNote String?
-  materialOverrideAt   DateTime?
-  createdAt            DateTime        @default(now())
-  updatedAt            DateTime        @updatedAt
-  steps                OrderStep[]
-  materials            OrderMaterial[]
-  devices              Device[]
-  tests                TestResult[]
-  ncrs                 Nonconformity[]
-  stockMovements       StockMovement[]
-
-  @@index([status])
-  @@index([productId])
-  @@index([createdAt])
-  @@index([originType])
-}
-
-// بررسی موجودی هر سفارش (Snapshot رزرو و کسری)
-model OrderMaterial {
-  id          String           @id @default(cuid())
-  orderId     String
-  order       ProductionOrder  @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  componentId String
-  component   Component        @relation(fields: [componentId], references: [id])
-  requiredQty Float
-  reservedQty Float            @default(0)
-  shortageQty Float            @default(0)
-  critical    Boolean          @default(false)
-  note        String?
-
-  @@unique([orderId, componentId])
-}
-
-// مراحل تولید سفارش (از قالب کپی می‌شود)
-model OrderStep {
-  id          String       @id @default(cuid())
-  orderId     String
-  order       ProductionOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  stepIndex   Int
-  name        String
-  tools       String?
-  acceptance  String?
-  required    Boolean      @default(true)
-  isPackaging Boolean      @default(false)
-  needsQc     Boolean      @default(false)
-  status      String       @default("PENDING") // PENDING | IN_PROGRESS | DONE
-  operatorId  String?
-  startedAt   DateTime?
-  finishedAt  DateTime?
-  notes       String?
-  records     StepRecord[]
-
-  @@unique([orderId, stepIndex])
-  @@index([orderId])
-}
-
-// ثبت عملکرد اپراتور (قابل ردیابی: چه کسی، کجا، کِی، چه نتیجه‌ای)
-model StepRecord {
-  id         String     @id @default(cuid())
-  stepId     String
-  step       OrderStep  @relation(fields: [stepId], references: [id], onDelete: Cascade)
-  deviceId   String?
-  device     Device?    @relation(fields: [deviceId], references: [id])
-  operatorId String
-  operator   User       @relation(fields: [operatorId], references: [id])
-  startedAt  DateTime   @default(now())
-  finishedAt DateTime?
-  result     String     @default("DONE") // DONE | FAIL | SKIPPED
-  notes      String?
-  createdAt  DateTime   @default(now())
-
-  @@index([stepId])
-  @@index([deviceId])
-}
-
-// ============ دستگاه (شماره سریال) — پرونده دیجیتال ============
-model Device {
-  id               String           @id @default(cuid())
-  serial           String           @unique
-  productId        String
-  product          Product          @relation(fields: [productId], references: [id])
-  productRevisionId String
-  productRevision  ProductRevision  @relation(fields: [productRevisionId], references: [id])
-  orderId          String?
-  order            ProductionOrder? @relation(fields: [orderId], references: [id])
-  bomId            String?
-  bom              Bom?             @relation(fields: [bomId], references: [id])
-  firmwareVersion  String?
-  softwareVersion  String?
-  programmedAt     DateTime?
-  programmedById   String?
-  programMethod    String?
-  programVerified  Boolean?
-  status           String           @default("IN_PRODUCTION") // IN_PRODUCTION | QC_PASS | QC_FAIL | REWORK | RELEASED | DELIVERED | SCRAPPED
-  producedAt       DateTime?
-  currentStepIndex Int              @default(0)
-  customerId       String?
-  customer         Customer?        @relation(fields: [customerId], references: [id])
-  deliveredAt      DateTime?
-  deliveredById    String?
-  deliveryNote     String?
-  notes            String?
-  partUsages       DevicePartUsage[]
-  stepRecords      StepRecord[]
-  tests            TestResult[]
-  releases         ProductRelease[]
-  reworks          ReworkRecord[]
-  ncrs             Nonconformity[]
-  repairs          Repair[]
-  complaints       Complaint[]
-  tickets          ServiceTicket[]
-  warrantyOverride WarrantyOverride?
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-
-  @@index([orderId])
-  @@index([productId])
-  @@index([status])
-  @@index([customerId])
-}
-
-// ردیابی دوسویه قطعه/لات ↔ دستگاه
-model DevicePartUsage {
-  id          String        @id @default(cuid())
-  deviceId    String
-  device      Device        @relation(fields: [deviceId], references: [id])
-  componentId String
-  component   Component     @relation(fields: [componentId], references: [id])
-  lotId       String?
-  lot         ComponentLot? @relation(fields: [lotId], references: [id])
-  lotNumber   String?
-  qty         Float
-  source      String        @default("PRODUCTION") // PRODUCTION | SERVICE
-  repairId    String?
-  usedById    String
-  user        User          @relation(fields: [usedById], references: [id])
-  usedAt      DateTime      @default(now())
-
-  @@index([deviceId])
-  @@index([componentId])
-  @@index([lotId])
-}
-
-// ============ کنترل کیفیت ============
-model TestTemplate {
-  id                String   @id @default(cuid())
-  code              String   @unique
-  name              String
-  stage             String // INCOMING | IN_PROCESS | FINAL
-  productId         String?
-  productRevisionId String?
-  componentId       String?
-  parameterName     String
-  unit              String?
-  criteria          String? // معیار پذیرش متنی
-  minValue          Float?
-  maxValue          Float?
-  targetValue       Float?
-  equipmentId       String?
-  required          Boolean  @default(true)
-  retestAllowed     Boolean  @default(true)
-  active            Boolean  @default(true)
-  equipment         Equipment? @relation(fields: [equipmentId], references: [id])
-  results           TestResult[]
-  notes             String?
-  createdAt         DateTime @default(now())
-}
-
-model Equipment {
-  id               String   @id @default(cuid())
-  code             String   @unique
-  name             String
-  equipmentType    String?
-  calibratedAt     DateTime?
-  calibrationDueAt DateTime?
-  status           String   @default("ACTIVE") // ACTIVE | OVERDUE | INACTIVE
-  notes            String?
-  tests            TestResult[]
-  templates        TestTemplate[]
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-}
-
-model TestResult {
-  id                 String           @id @default(cuid())
-  templateCode       String
-  name               String
-  stage              String // INCOMING | IN_PROCESS | FINAL
-  templateId         String?
-  deviceId           String?
-  device             Device?          @relation(fields: [deviceId], references: [id])
-  orderId            String?
-  order              ProductionOrder? @relation(fields: [orderId], references: [id])
-  componentId        String?
-  lotId              String?
-  parameterName      String
-  unit               String?
-  criteria           String?
-  actualValue        String?
-  passed             Boolean
-  equipmentId        String?
-  equipment          Equipment?     @relation(fields: [equipmentId], references: [id])
-  equipmentCalibrated Boolean          @default(true)
-  operatorId         String
-  operator           User           @relation("TestOperator", fields: [operatorId], references: [id])
-  verifiedById       String?
-  verifier           User?          @relation("TestVerifier", fields: [verifiedById], references: [id])
-  verifiedAt         DateTime?
-  notes              String?
-  template           TestTemplate?  @relation(fields: [templateId], references: [id])
-  retestOfId         String? // زنجیره Retest — سوابق قبلی هرگز حذف/بازنویسی نمی‌شوند
-  ncrId              String?
-  createdAt          DateTime         @default(now())
-
-  @@index([deviceId])
-  @@index([orderId])
-  @@index([stage])
-  @@index([retestOfId])
-}
-
-// کنترل قطعات ورودی
-model IncomingInspection {
-  id          String    @id @default(cuid())
-  code        String    @unique // IQC-1404-001
-  componentId String
-  component   Component @relation(fields: [componentId], references: [id])
-  lotId       String?
-  lot         ComponentLot? @relation(fields: [lotId], references: [id])
-  supplierId  String?
-  qty         Float
-  status      String    @default("PENDING") // PENDING | APPROVED | REJECTED
-  inspectorId String?
-  inspector   User?     @relation(fields: [inspectorId], references: [id])
-  inspectedAt DateTime?
-  decisionNote String?
-  ncrId       String?
-  createdAt   DateTime  @default(now())
-
-  @@index([componentId])
-}
-
-model Nonconformity {
-  id               String           @id @default(cuid())
-  code             String           @unique // NCR-1404-001
-  type             String // TEST_FAIL | MATERIAL | PROCESS | COMPLAINT
-  source           String // INCOMING | IN_PROCESS | FINAL | SERVICE
-  deviceId         String?
-  device           Device?          @relation(fields: [deviceId], references: [id])
-  orderId          String?
-  order            ProductionOrder? @relation(fields: [orderId], references: [id])
-  testResultId     String?
-  componentId      String?
-  component        Component? @relation(fields: [componentId], references: [id])
-  lotId            String?
-  complaintId      String?
-  title            String
-  description      String
-  severity         String           @default("MEDIUM") // LOW | MEDIUM | HIGH | CRITICAL
-  rootCause        String?
-  correctiveAction String?
-  preventiveAction String?
-  status           String           @default("OPEN") // OPEN | IN_REWORK | RETEST | RESOLVED | CLOSED
-  detectedById     String
-  detectedAt       DateTime         @default(now())
-  closedById       String?
-  closedAt         DateTime?
-  reworks          ReworkRecord[]
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
-
-  @@index([status])
-  @@index([deviceId])
-}
-
-model ReworkRecord {
-  id             String    @id @default(cuid())
-  ncrId          String?
-  ncr            Nonconformity? @relation(fields: [ncrId], references: [id])
-  deviceId       String
-  device         Device    @relation(fields: [deviceId], references: [id])
-  orderId        String?
-  action         String
-  performedById  String
-  performer      User      @relation(fields: [performedById], references: [id])
-  performedAt    DateTime  @default(now())
-  retestRequired Boolean   @default(true)
-  notes          String?
-}
-
-model ProductRelease {
-  id           String   @id @default(cuid())
-  deviceId     String
-  device       Device   @relation(fields: [deviceId], references: [id])
-  releasedById String
-  user         User     @relation(fields: [releasedById], references: [id])
-  releasedAt   DateTime @default(now())
-  notes        String?
-  checksJson   String? // Snapshot شرایط پیش‌آزادسازی
-}
-
-// ============ مشتریان و خدمات پس از فروش ============
-model Customer {
-  id            String          @id @default(cuid())
-  code          String          @unique
-  name          String
-  type          String          @default("HOSPITAL") // HOSPITAL | CLINIC | DISTRIBUTOR | OTHER
-  contactPerson String?
-  phone         String?
-  email         String?
-  city          String?
-  address       String?
-  notes         String?
-  devices       Device[]
-  tickets       ServiceTicket[]
-  complaints    Complaint[]
-  orders        ProductionOrder[] @relation("OrderCustomer")
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
-}
-
-model ServiceTicket {
-  id                   String         @id @default(cuid())
-  code                 String         @unique // ST-1404-001
-  customerId           String
-  customer             Customer       @relation(fields: [customerId], references: [id])
-  deviceId             String?
-  device               Device?        @relation(fields: [deviceId], references: [id])
-  deviceSerialText     String? // اگر دستگاه در سیستم ثبت نشده بود
-  contactPhone         String?
-  problem              String
-  category             String?
-  priority             String         @default("NORMAL")
-  status               String         @default("NEW")
-  receivedAt           DateTime       @default(now())
-  assignedTechnicianId String?
-  assignedTechnician   User?    @relation(fields: [assignedTechnicianId], references: [id])
-  slaHours             Int?
-  resolvedAt           DateTime?
-  closedAt             DateTime?
-  closedById           String?
-  createdById          String
-  notes                String?
-  updates              TicketUpdate[]
-  repairs              Repair[]
-  complaint            Complaint? @relation("TicketComplaint")
-  createdAt            DateTime       @default(now())
-  updatedAt            DateTime       @updatedAt
-
-  @@index([status])
-  @@index([customerId])
-}
-
-model TicketUpdate {
-  id        String       @id @default(cuid())
-  ticketId  String
-  ticket    ServiceTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+model UserProject {
+  id        String @id @default(cuid())
   userId    String
-  user      User         @relation(fields: [userId], references: [id])
-  text      String
-  internal  Boolean      @default(false)
-  createdAt DateTime     @default(now())
+  projectId String
 
-  @@index([ticketId])
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, projectId])
 }
 
-// شکایت (مجزا از Service Ticket)
-model Complaint {
-  id                     String    @id @default(cuid())
-  code                   String    @unique // CMP-1404-001
-  customerId             String
-  customer               Customer  @relation(fields: [customerId], references: [id])
-  deviceId               String?
-  device                 Device?   @relation(fields: [deviceId], references: [id])
-  description            String
-  severity               String    @default("MEDIUM")
-  safetyImpact           String    @default("NO") // NO | UNKNOWN | YES
-  receivedAt             DateTime  @default(now())
-  status                 String    @default("OPEN") // OPEN | INVESTIGATING | CAPA | PENDING_APPROVAL | CLOSED | REJECTED
-  rootCause              String?
-  correctiveAction       String?
-  preventiveAction       String?
-  resolution             String?
-  approvedById           String?
-  approvedBy             User?    @relation("ComplaintApprover", fields: [approvedById], references: [id])
-  approvedAt             DateTime?
-  rejectionReason        String?
-  // بررسی Reportable فقط توسط فرد واجد صلاحیت — سیستم خودش تصمیم نمی‌گیرد
-  regulatoryReviewStatus String? // PENDING | REVIEWING | REPORTABLE | NOT_REPORTABLE
-  regulatoryReviewerId   String?
-  regulatoryReviewer     User?    @relation("ComplaintReviewer", fields: [regulatoryReviewerId], references: [id])
-  regulatoryNote         String?
-  ticketId               String? @unique
-  ticket                 ServiceTicket? @relation("TicketComplaint", fields: [ticketId], references: [id])
-  createdById            String
-  createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt
+// ─────────────────────────── Master Data ───────────────────────────
 
-  @@index([status])
-  @@index([customerId])
+model Supplier {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String?
+  workshopId String? // scope مالکیت داده
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workshop Workshop? @relation(fields: [workshopId], references: [id])
+  sourceEntries MaterialEntry[]
+
+  @@index([workshopId])
+  @@index([name])
 }
 
-model Repair {
-  id             String      @id @default(cuid())
-  code           String      @unique // REP-1404-001
-  ticketId       String?
-  ticket         ServiceTicket? @relation(fields: [ticketId], references: [id])
-  deviceId       String
-  device         Device      @relation(fields: [deviceId], references: [id])
-  technicianId   String
-  technician     User        @relation("RepairTechnician", fields: [technicianId], references: [id])
-  diagnosis      String?
-  failureMode    String?
-  rootCause      String?
-  action         String
-  result         String      @default("FIXED") // FIXED | PARTIAL | NOT_FIXED | REPLACED_DEVICE
-  parts          RepairPart[]
-  performedAt    DateTime    @default(now())
-  qcRequired     Boolean     @default(false)
-  qcVerifiedById String?
-  qcVerifiedBy   User?       @relation("RepairQcVerifier", fields: [qcVerifiedById], references: [id])
-  qcVerifiedAt   DateTime?
-  notes          String?
-}
-
-model RepairPart {
+model Material {
   id          String   @id @default(cuid())
-  repairId    String
-  repair      Repair   @relation(fields: [repairId], references: [id], onDelete: Cascade)
-  componentId String
-  component   Component @relation(fields: [componentId], references: [id])
-  lotId       String?
-  lotNumber   String?
-  qty         Float    @default(1)
-  oldPart     String? // مشخصات قطعه قبلی
-  newPart     String?
+  name        String
+  category    String?
+  defaultUnit String? // کیسه / تن / عدد ...
+  workshopId  String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workshop Workshop? @relation(fields: [workshopId], references: [id])
+
+  @@index([workshopId])
+  @@index([name])
 }
 
-// گارانتی: محاسبه‌ی خودکار از تاریخ تحویل + امکان Override کنترل‌شده
-model WarrantyOverride {
-  id       String   @id @default(cuid())
-  deviceId String   @unique
-  device   Device   @relation(fields: [deviceId], references: [id])
-  status   String // IN_WARRANTY | OUT_OF_WARRANTY | UNKNOWN
-  reason   String
-  setById  String
-  setAt    DateTime @default(now())
+model MaterialUnit {
+  id       String  @id @default(cuid())
+  title    String  @unique // کیسه، تن، عدد، متر ...
+  isSystem Boolean @default(true)
 }
 
-// ═══ دفتر گردش کالا (Append-Only) ═══
-// هر تغییری در موجودی (رسید، خروج دستی، اصلاح، مصرف BOM، مصرف تولید، رد IQC)
-// با مقدار قبل/بعد، مبنا (دست/دلیل) و کاربر ثبت‌کننده ثبت می‌شود و قابل حذف نیست.
-model StockMovement {
-  id          String           @id @default(cuid())
-  code        String           @unique // MV-1404-001
-  componentId String
-  component   Component        @relation(fields: [componentId], references: [id])
-  lotId       String?
-  lot         ComponentLot?    @relation(fields: [lotId], references: [id])
-  lotNumber   String?
-  type        String // MANUAL_IN | MANUAL_OUT | ADJUST | BOM_CONSUME | PRODUCTION | IQC_REJECT
-  qty         Float // علامت‌دار: مثبت = ورود، منفی = خروج
-  beforeQty   Float
-  afterQty    Float
-  reason      String?
-  orderId     String? // در صورت اتصال به سفارش تولید
-  order       ProductionOrder? @relation(fields: [orderId], references: [id])
-  userId      String
-  user        User             @relation("StockMovementUser", fields: [userId], references: [id])
-  createdAt   DateTime         @default(now())
+model Worker {
+  id        String   @id @default(cuid())
+  fullName  String
+  kind      String   @default("LABORER") // LABORER | DRIVER | FORKLIFT | CONTRACTOR | OTHER
+  jobTitle  String? // شرح وظایف — سند سیستم یکپارچه (ارزیابی و KPI)
+  phone     String?
+  workshopId String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  @@index([componentId])
-  @@index([createdAt])
+  workshop    Workshop?              @relation(fields: [workshopId], references: [id])
+  entryWorkers MaterialEntryWorker[]
+  workReports WorkReport[]           @relation("WorkReportWorker")
+  userAccounts User[]                @relation("UserWorkerLink")
+  transfers   WorkerTransfer[]
+  goals       WorkerGoal[]
+
+  @@index([workshopId])
+  @@index([fullName])
+}
+
+// ─────────────────────────── Material Entry ───────────────────────────
+
+model MaterialEntry {
+  id          String   @id @default(cuid())
+  entryNumber Int      @unique // شماره ثبت — یکتا؛ تولید اتمی در تراکنش + Retry روی P2002
+  type        String // PURCHASE | TRANSFER | LOAN | RETURN | OTHER
+  status      String   @default("DRAFT")
+  workshopId  String // کارگاه ثبت‌کننده (مالک رکورد)
+  supervisorId String // از Session — قابل جعل نیست
+
+  sourceType        String  @default("OTHER") // SUPPLIER | WORKSHOP | OTHER
+  sourceSupplierId  String?
+  sourceWorkshopId  String?
+  sourceDescription String? // برای OTHER یا توضیح آزاد
+
+  notes       String?
+  hasInvoice  Boolean @default(false)
+  deliveryAt  DateTime? // تاریخ ورود مصالح — انتخابی با تقویم جلالی (نیمه‌شب UTC)
+
+  submittedAt   DateTime?
+  decidedAt     DateTime?
+  approvedById  String?
+  decisionNote  String?
+  currentVersion Int     @default(1)
+  editDeadline   DateTime? // submittedAt + 24h — محاسبه سمت سرور
+  lockedAt       DateTime?
+
+  // ── زنجیرهٔ حرفه‌ای Workflow ──
+  clientRequestId          String?  @unique // Idempotency — ضد داده تکراری در Offline Sync
+  techReviewStartedAt      DateTime?
+  techReviewedAt           DateTime?
+  techReviewedById         String?
+  techReviewNote           String?
+  warehouseConfirmedAt     DateTime?
+  warehouseConfirmedById   String?
+  deliveredAt              DateTime?
+  deliveredById            String?
+  closedAt                 DateTime?
+  closedById               String?
+  inventoryAppliedAt       DateTime? // موجودی انبار هنگام تأیید انبار اعمال شد — ضدتکرار در Rollback/تأیید مجدد
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workshop       Workshop               @relation("EntryWorkshop", fields: [workshopId], references: [id])
+  sourceWorkshop Workshop?              @relation("EntrySourceWorkshop", fields: [sourceWorkshopId], references: [id])
+  sourceSupplier Supplier?              @relation(fields: [sourceSupplierId], references: [id])
+  supervisor     User                   @relation("EntrySupervisor", fields: [supervisorId], references: [id])
+  items          MaterialEntryItem[]
+  projects       MaterialEntryProject[]
+  workers        MaterialEntryWorker[]
+  attachments    Attachment[]
+  versions       MaterialEntryVersion[]
+  approvals      Approval[]
+  corrections    CorrectionRequest[]
+  stageLogs      EntryStageLog[]
+
+  @@index([workshopId, status])
+  @@index([supervisorId])
+  @@index([status, submittedAt])
   @@index([type])
+  @@index([sourceSupplierId])
+  @@index([createdAt])
+  @@index([entryNumber, createdAt])
+  @@index([status, closedAt])
+  @@index([clientRequestId])
 }
 
-// ============ مستندات کنترل‌شده ============
-model Document {
+model MaterialEntryItem {
+  id        String  @id @default(cuid())
+  entryId   String
+  materialId String?
+  materialName String // snapshot
+  quantity  Float
+  unit      String
+  brand     String?
+  description String?
+  batchNumber String?
+  serialNumber String?
+  sortOrder Int     @default(0)
+
+  entry MaterialEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  @@index([entryId])
+  @@index([materialId])
+}
+
+model MaterialEntryProject {
+  id        String @id @default(cuid())
+  entryId   String
+  projectId String
+
+  entry   MaterialEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  project Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([entryId, projectId])
+  @@index([projectId])
+}
+
+model MaterialEntryWorker {
+  id         String  @id @default(cuid())
+  entryId    String
+  workerId   String?
+  workerName String // snapshot (اجازه نام آزاد مثل «علی»)
+  workerKind String  @default("LABORER")
+  role       String? // نقش در این تخلیه: راننده/کارگر/...
+
+  entry  MaterialEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  worker Worker?       @relation(fields: [workerId], references: [id])
+
+  @@index([entryId])
+  @@index([workerId])
+}
+
+// ─────────────────────────── صورت وضعیت (Progress Statement) ───────────────────────────
+// ProgressStatementStatus: DRAFT | SUBMITTED | APPROVED | PENDING_GM_SIGN | SIGNED | REJECTED
+// صورت وضعیت‌های بالای آستانهٔ مدیر کل (۱۵۰ میلیون تومان) پس از تأیید مدیر،
+// باید امضای الکترونیک مدیر کل (GENERAL_MANAGER) را بگیرند.
+model ProgressStatement {
   id           String   @id @default(cuid())
-  name         String
-  docType      String // TEST_REPORT | QC_REPORT | PHOTO | REPAIR_REPORT | CUSTOMER_DOC | CERTIFICATE | CALIBRATION | PRODUCTION | SERVICE | OTHER
-  entityType   String? // ORDER | DEVICE | TICKET | COMPLAINT | REPAIR | COMPONENT | PRODUCT | CUSTOMER
-  entityId     String?
-  entityCode   String?
-  fileName     String? // نام فایل روی دیسک
-  origName     String?
-  mimeType     String?
-  sizeBytes    Int?
-  revision     Int      @default(1)
-  status       String   @default("ACTIVE") // ACTIVE | SUPERSEDED
-  supersedesId String?
-  uploadedById String
-  uploader    User     @relation(fields: [uploadedById], references: [id])
-  uploadedAt   DateTime @default(now())
-  notes        String?
+  number       Int      @unique // شمارهٔ ترتیبی — تولید اتمی در تراکنش + Retry روی P2002
+  title        String
+  workshopId   String
+  projectId    String?
+  periodText   String? // دورهٔ صورت وضعیت — مثلا «شهریور ۱۴۰۵»
+  amount       BigInt // مبلغ به تومان — بدون هیچ ارتباط مالی/پرداختی
+  description  String?
+  status       String   @default("DRAFT")
+  needsGmSign  Boolean  @default(false) // آیا بالای آستانه است (snapshot در لحظهٔ ارسال)
+  createdById  String
+  submittedAt  DateTime?
+  approvedById String?
+  approvedAt   DateTime?
+  approvalNote String?
+  signedById   String?
+  signedAt     DateTime?
+  signerName   String?
+  signaturePath String? // فایل PNG امضا — ذخیرهٔ خصوصی با Signed URL
+  rejectedById String?
+  rejectedAt   DateTime?
+  rejectReason String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  @@index([entityType, entityId])
+  workshop   Workshop @relation("StatementWorkshop", fields: [workshopId], references: [id])
+  project    Project? @relation("StatementProject", fields: [projectId], references: [id])
+  createdBy  User     @relation("StatementCreator", fields: [createdById], references: [id])
+  approvedBy User?    @relation("StatementApprover", fields: [approvedById], references: [id])
+  signedBy   User?    @relation("StatementSigner", fields: [signedById], references: [id])
+  rejectedBy User?    @relation("StatementRejecter", fields: [rejectedById], references: [id])
+
+  @@index([workshopId, status])
+  @@index([projectId])
+  @@index([status, submittedAt])
+  @@index([createdById, createdAt])
+  @@index([number])
+  @@index([createdAt])
 }
 
-// ============ Audit Trail (Append-Only) ============
+// ─────────────────────────── اعلام نیاز و کنترل خرید ───────────────────────────
+// PurchaseRequestStatus: PENDING | APPROVED | ORDERED | RECEIVED | REJECTED
+// زنجیره: انباردار اعلام نیاز می‌کند → مدیر تأیید/رد می‌کند → کارپرداز ثبت خرید
+// (تأمین‌کننده + تصویر فاکتور + تاریخ تحویل + مبلغ اختیاری) → «دریافت انبار» → ورود خودکار به موجودی.
+// این ماژول «کنترل خرید» است — هیچ ماژول مالی/پرداخت/سررسید وجود ندارد.
+model PurchaseRequest {
+  id            String   @id @default(cuid())
+  number        Int      @unique // شمارهٔ ترتیبی درخواست
+  workshopId    String
+  projectId     String?
+  requestedById String
+  neededBy      DateTime? // تاریخ نیاز — نیمه‌شب تهران → UTC
+  note          String?
+  status        String   @default("PENDING")
+
+  // ── ثبت خرید (مرحلهٔ ORDER) ──
+  supplierId        String? // تأمین‌کنندهٔ منتخب از Master Data
+  supplierName      String? // Snapshot نام تأمین‌کننده
+  expectedDeliveryAt DateTime? // تاریخ تحویل وعده‌داده‌شده — نیمه‌شب تهران → UTC
+  totalAmount       BigInt? // مبلغ کل خرید به تومان — اختیاری؛ صرفاً برای کنترل خرید، بدون هیچ پیوند مالی
+  orderNote         String?
+  invoicePath       String? // فایل تصویر/PDF فاکتور — ذخیرهٔ خصوصی با Signed URL
+  invoiceFileName   String?
+  invoiceMimeType   String?
+  invoiceSize       Int?
+  invoiceProvider   String? // LOCAL | S3 — مبدأ ذخیره‌سازی (Metadata)
+  approvedById  String?
+  approvedAt    DateTime?
+  orderedById   String?
+  orderedAt     DateTime?
+  receivedById  String?
+  receivedAt    DateTime?
+  rejectedById  String?
+  rejectedAt    DateTime?
+  rejectReason  String?
+
+  // ── مالی ساده (سند سیستم یکپارچه — پرداخت و سررسید) ──
+  dueDate      DateTime? // سررسید پرداخت به تأمین‌کننده — نیمه‌شب تهران → UTC
+  paymentTerms String? // شرایط پرداخت — متن آزاد (مثلاً «۵۰٪ هنگام خرید، مابقی بعد از تحویل»)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  workshop    Workshop              @relation("PurchaseWorkshop", fields: [workshopId], references: [id])
+  project     Project?              @relation("PurchaseProject", fields: [projectId], references: [id])
+  requestedBy User                  @relation("PurchaseRequester", fields: [requestedById], references: [id])
+  approvedBy  User?                 @relation("PurchaseApprover", fields: [approvedById], references: [id])
+  orderedBy   User?                 @relation("PurchaseOrderer", fields: [orderedById], references: [id])
+  receivedBy  User?                 @relation("PurchaseReceiver", fields: [receivedById], references: [id])
+  rejectedBy  User?                 @relation("PurchaseRejecter", fields: [rejectedById], references: [id])
+  items       PurchaseRequestItem[]
+  movements   InventoryMovement[]
+  payments    Payment[]
+
+  @@index([workshopId, status])
+  @@index([status, createdAt])
+  @@index([requestedById, createdAt])
+  @@index([projectId])
+  @@index([number])
+  @@index([supplierId])
+  @@index([dueDate])
+}
+
+model PurchaseRequestItem {
+  id           String  @id @default(cuid())
+  requestId    String
+  materialId   String?
+  materialName String // snapshot
+  quantity     Float
+  unit         String
+  note         String?
+  sortOrder    Int     @default(0)
+
+  request PurchaseRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+  @@index([materialId])
+}
+
+// ─────────────────────────── جابجایی نیرو بین کارگاه‌ها ───────────────────────────
+// سابقهٔ کامل جابجایی هر کارگر — با هر جابجایی Worker.workshopId به‌روز می‌شود
+// و رکورد قبلی برای «پروندهٔ نیرو» حفظ می‌شود.
+model WorkerTransfer {
+  id             String   @id @default(cuid())
+  workerId       String
+  fromWorkshopId String?
+  toWorkshopId   String
+  transferredAt  DateTime // نیمه‌شب تهران → UTC — تاریخ جابجایی
+  reason         String?
+  createdById    String
+  createdAt      DateTime @default(now())
+
+  worker       Worker    @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  fromWorkshop Workshop? @relation("WorkerTransferFrom", fields: [fromWorkshopId], references: [id])
+  toWorkshop   Workshop  @relation("WorkerTransferTo", fields: [toWorkshopId], references: [id])
+  createdBy    User      @relation("WorkerTransferCreator", fields: [createdById], references: [id])
+
+  @@index([workerId, transferredAt])
+  @@index([toWorkshopId])
+  @@index([fromWorkshopId])
+}
+
+// ─────────────────────────── انبار کارگاه (موجودی و گردش) ───────────────────────────
+// موجودی به تفکیک (کارگاه × مصالح × واحد). ورود خودکار از «دریافت خرید» و
+// «تأیید انبار ثبت ورود مصالح»؛ خروج دستی انباردار (مصرف/تحویل به کارگاه).
+// هیچ دادهٔ مالی — صرفاً تعداد فیزیکی.
+model InventoryStock {
+  id          String  @id @default(cuid())
+  workshopId  String
+  materialId  String?
+  materialName String
+  unit        String
+  quantity    Float   @default(0)
+  minQuantity Float? // حداقل موجودی — زیر آن «کمبود» هشدار می‌شود
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workshop  Workshop           @relation(fields: [workshopId], references: [id])
+  movements InventoryMovement[]
+
+  @@unique([workshopId, materialName, unit])
+  @@index([workshopId])
+  @@index([materialId])
+}
+
+// InventoryDirection: IN | OUT
+// InventoryReason: PURCHASE | ENTRY | ISSUE | RETURN | ADJUST
+model InventoryMovement {
+  id                String   @id @default(cuid())
+  workshopId        String
+  stockId           String?
+  materialId        String?
+  materialName      String
+  unit              String
+  quantity          Float // همیشه مثبت — جهت با direction مشخص می‌شود
+  direction         String // IN | OUT
+  reason            String   @default("ISSUE") // PURCHASE | ENTRY | ISSUE | RETURN | ADJUST
+  purchaseRequestId String?
+  note              String?
+  createdById       String
+  createdAt         DateTime @default(now())
+
+  workshop    Workshop         @relation(fields: [workshopId], references: [id])
+  stock       InventoryStock?  @relation(fields: [stockId], references: [id])
+  purchaseRequest PurchaseRequest? @relation(fields: [purchaseRequestId], references: [id])
+  createdBy   User             @relation("InventoryMovementCreator", fields: [createdById], references: [id])
+
+  @@index([workshopId, createdAt])
+  @@index([stockId])
+  @@index([purchaseRequestId])
+  @@index([direction, reason])
+}
+
+// ─────────────────────────── چک‌لیست پروژه ───────────────────────────
+// چک‌لیست شروع پروژه و فرآیندهای کلیدی — برای جلوگیری از فراموشی و دوباره‌کاری.
+// در اولین بازدید، الگوی پیش‌فرض به‌صورت تنبل seed می‌شود.
+model ProjectChecklistItem {
+  id        String   @id @default(cuid())
+  projectId String
+  title     String
+  sortOrder Int      @default(0)
+  isDone    Boolean  @default(false)
+  doneById  String?
+  doneAt    DateTime?
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  doneBy  User?   @relation("ChecklistItemDoneBy", fields: [doneById], references: [id])
+
+  @@index([projectId, sortOrder])
+}
+
+// ─────────────────────────── مالی ساده: پرداخت و سررسید (سند سیستم یکپارچه — فاز ۳) ───────────────────────────
+// طبق سند PDF: «ثبت شرایط پرداخت، تاریخ سررسید، وضعیت بدهی و هشدار خودکار سررسید».
+// طراحی عامدانهٔ ساده: پرداخت روی خرید ثبت‌شده + طلب از کارفرما — بدون دفتر کل و اسناد حسابداری.
+
+// PaymentMethod: CASH | TRANSFER | CHECK | OTHER
+model Payment {
+  id          String   @id @default(cuid())
+  purchaseId  String
+  amount      BigInt // مبلغ پرداخت به تومان
+  paidAt      DateTime // تاریخ پرداخت — نیمه‌شب تهران → UTC
+  method      String   @default("TRANSFER") // CASH | TRANSFER | CHECK | OTHER
+  referenceNo String? // شماره پیگیری / شماره چک
+  note        String?
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  purchase  PurchaseRequest @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  createdBy User            @relation("PaymentCreator", fields: [createdById], references: [id])
+
+  @@index([purchaseId])
+  @@index([paidAt])
+}
+
+// ReceivableStatus: OPEN | SETTLED
+model Receivable {
+  id          String    @id @default(cuid())
+  workshopId  String
+  projectId   String?
+  title       String // شرح طلب — مثلاً «صورت وضعیت شمارهٔ ۳ پروژهٔ X»
+  amount      BigInt // مبلغ طلب به تومان
+  dueDate     DateTime? // سررسید وصول — نیمه‌شب تهران → UTC
+  status      String    @default("OPEN") // OPEN | SETTLED
+  settledAt   DateTime?
+  note        String?
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workshop  Workshop @relation(fields: [workshopId], references: [id])
+  project   Project? @relation(fields: [projectId], references: [id])
+  createdBy User     @relation("ReceivableCreator", fields: [createdById], references: [id])
+
+  @@index([workshopId, status])
+  @@index([projectId])
+}
+
+// ─────────────────────────── ارزیابی و KPI نیروی انسانی (سند سیستم یکپارچه) ───────────────────────────
+// هدف ماهانهٔ هر نیرو (تعداد گزارش کار) + شرح وظایف روی پروفایل کارگر —
+// درصد تحقق در صفحهٔ ارزیابی از گزارش‌های کار همان ماه محاسبه می‌شود.
+
+model WorkerGoal {
+  id            String   @id @default(cuid())
+  workerId      String
+  period        String // ماه هدف — قالب میلادی YYYY-MM (نمایش جلالی در UI)
+  targetReports Int
+  note          String?
+  createdById   String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  worker    Worker @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  createdBy User   @relation("WorkerGoalCreator", fields: [createdById], references: [id])
+
+  @@unique([workerId, period])
+  @@index([period])
+}
+
+// ─────────────────────────── گزارش کار کارگران ───────────────────────────
+// گزارش کار انجام‌شده — توسط سرپرست/مدیر «یا خودِ کارگر» (نقش نیروی اجرایی)
+// ثبت می‌شود تا مدیر کل بداند هر کارگر در روز چه کار کرده است.
+model WorkReport {
+  id          String   @id @default(cuid())
+  workshopId  String
+  projectId   String?
+  workerId    String?
+  workerName  String // snapshot — یا نام آزاد
+  reportDate  DateTime // نیمه‌شب تهران → UTC — روزِ کار
+  content     String // شرح کار انجام‌شده
+  crewCount   Int? // تعداد نفرات گروه (اختیاری)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workshop  Workshop @relation("WorkReportWorkshop", fields: [workshopId], references: [id])
+  project   Project? @relation("WorkReportProject", fields: [projectId], references: [id])
+  worker    Worker?  @relation("WorkReportWorker", fields: [workerId], references: [id])
+  createdBy User     @relation("WorkReportCreator", fields: [createdById], references: [id])
+
+  @@index([workshopId, reportDate])
+  @@index([reportDate])
+  @@index([workerId])
+  @@index([projectId])
+  @@index([createdById, createdAt])
+}
+
+// ─────────────────────────── Files ───────────────────────────
+
+model Attachment {
+  id          String   @id @default(cuid())
+  entryId     String
+  kind        String   @default("OTHER") // INVOICE | WAYBILL | RECEIPT | OTHER
+  fileName    String
+  mimeType    String
+  size        Int
+  storagePath String
+  version     Int      @default(1) // نسخهٔ فایل — با هر جایگزینی +۱
+  replacedById String? @unique // نسخهٔ جدیدتر این فایل (null = آخرین نسخه)
+  storageProvider String @default("LOCAL") // LOCAL | S3 — مبدأ ذخیره‌سازی (Metadata)
+  uploadedById String
+  createdAt   DateTime @default(now())
+
+  entry     MaterialEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  uploadedBy User         @relation("AttachmentUploader", fields: [uploadedById], references: [id])
+  replacedBy Attachment?   @relation("AttachmentVersionChain", fields: [replacedById], references: [id])
+  previousVersions Attachment[] @relation("AttachmentVersionChain")
+
+  @@index([entryId])
+  @@index([entryId, version])
+}
+
+// ─────────────────────────── Workflow ───────────────────────────
+
+model Approval {
+  id          String   @id @default(cuid())
+  entryId     String
+  action      String // APPROVE | REJECT | REQUEST_CORRECTION
+  decidedById String
+  reason      String?
+  decidedAt   DateTime @default(now())
+  seenAt      DateTime?
+
+  entry      MaterialEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  decidedBy  User          @relation(fields: [decidedById], references: [id])
+
+  @@index([entryId])
+  @@index([decidedById])
+}
+
+model CorrectionRequest {
+  id            String    @id @default(cuid())
+  entryId       String
+  requestedById String
+  reason        String
+  status        String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  responseNote  String?
+  reviewedById  String?
+  reviewedAt    DateTime?
+  createdAt     DateTime  @default(now())
+
+  entry       MaterialEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  requestedBy User          @relation("CorrectionRequester", fields: [requestedById], references: [id])
+
+  @@index([entryId])
+  @@index([status])
+}
+
+model MaterialEntryVersion {
+  id          String   @id @default(cuid())
+  entryId     String
+  version     Int
+  snapshotJson String // کامل: type, source, items, projects, workers, notes ...
+  changeReason String?
+  changedById String
+  createdAt   DateTime @default(now())
+
+  entry     MaterialEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  changedBy User          @relation(fields: [changedById], references: [id])
+
+  @@unique([entryId, version])
+  @@index([entryId])
+}
+
+// ─────────────────────────── Audit & Notification ───────────────────────────
+
 model AuditLog {
   id         String   @id @default(cuid())
   userId     String?
-  username   String?
-  role       String?
-  action     String
-  entityType String?
+  action     String // CREATE | EDIT | SUBMIT | APPROVE | REJECT | REQUEST_CORRECTION | APPROVE_CORRECTION | LOCK | UPLOAD_ATTACHMENT | DELETE_ATTACHMENT | LOGIN | LOGOUT | PERMISSION_CHANGE | VOICE_PROCESS
+  entityType String
   entityId   String?
-  entityCode String?
-  oldValues  String? // JSON
-  newValues  String? // JSON
+  oldValue   String?
+  newValue   String?
   ip         String?
   userAgent  String?
+  reason     String?
   createdAt  DateTime @default(now())
 
+  user User? @relation(fields: [userId], references: [id])
+
   @@index([entityType, entityId])
-  @@index([createdAt])
   @@index([userId])
   @@index([action])
-}
-
-// ============ اعلان‌ها (بر اساس نقش) ============
-model Notification {
-  id           String             @id @default(cuid())
-  targetRole   String? // ارسال به همه کاربران یک نقش
-  targetUserId String? // یا کاربر خاص
-  title        String
-  body         String
-  severity     String             @default("INFO") // INFO | SUCCESS | WARNING | CRITICAL
-  entityType   String?
-  entityId     String?
-  linkView     String? // مسیر نمایش در فرانت‌اند
-  createdAt    DateTime           @default(now())
-  reads        NotificationRead[]
-
-  @@index([targetRole])
   @@index([createdAt])
 }
 
-model NotificationRead {
-  id            String       @id @default(cuid())
-  notificationId String
-  notification  Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
-  userId        String
-  readAt        DateTime     @default(now())
+model Notification {
+  id         String   @id @default(cuid())
+  userId     String
+  type       String // ENTRY_SUBMITTED | ENTRY_APPROVED | ENTRY_REJECTED | ... | TASK_OVERDUE
+  title      String
+  body       String
+  entityId   String?
+  entityType String?
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
 
-  @@unique([notificationId, userId])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries NotificationDelivery[]
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+}
+
+// لاگ تحویل هر اعلان در کانال‌های خارجی (SMS/Email/Push) — In-App در همین جدول Notification است
+model NotificationDelivery {
+  id             String   @id @default(cuid())
+  notificationId String
+  channel        String // SMS | EMAIL | PUSH
+  status         String // SENT | FAILED | SKIPPED
+  detail         String? // پیام خطا/شناسهٔ پیام سرویس خارجی
+  createdAt      DateTime @default(now())
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([notificationId])
+  @@index([channel, status, createdAt])
+}
+
+// تاریخچهٔ مراحل Workflow ثبت — هر گذر/برگشت مرحله یک رکورد (گزارش شفافیت Enterprise)
+model EntryStageLog {
+  id        String   @id @default(cuid())
+  entryId   String
+  stage     String // وضعیت حاصل پس از Action
+  action    String // SUBMIT | TECH_REVIEW_START | TECH_REVIEW_COMPLETE | APPROVE | REJECT | WAREHOUSE_CONFIRM | DELIVER | CLOSE | ROLLBACK | LOCK
+  actorId   String
+  note      String?
+  createdAt DateTime @default(now())
+
+  entry MaterialEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  actor User          @relation("StageLogActor", fields: [actorId], references: [id])
+
+  @@index([entryId, createdAt])
+  @@index([actorId])
+}
+
+// ─────────────────────────── Daily Tasks & Reports Module ───────────────────────────
+// Role: WORKSHOP_MANAGER creates/sends, WORKSHOP_SUPERVISOR completes & reports,
+// PROJECT_MANAGER observes + reviews. همهٔ زمان‌ها UTC ذخیره می‌شوند (نمایش جلالی در UI).
+
+// DailyTaskStatus: DRAFT | PENDING | IN_PROGRESS | COMPLETED | CANCELLED
+// TaskPriority: LOW | MEDIUM | HIGH | URGENT
+// DailyReportStatus: DRAFT | SUBMITTED | REVIEWED
+
+model DailyTask {
+  id           String   @id @default(cuid())
+  projectId    String
+  workshopId   String
+  title        String
+  description  String?
+  createdById  String
+  status       String   @default("DRAFT") // DRAFT | PENDING | IN_PROGRESS | COMPLETED | CANCELLED
+  assignedDate DateTime // نیمه‌شب تهران → UTC — روزِ وظیفه
+  dueDate      DateTime? // مهلت انجام (UTC)
+  priority     String   @default("MEDIUM") // LOW | MEDIUM | HIGH | URGENT
+  sentAt       DateTime?
+  completedAt  DateTime?
+  completedById String?
+  completionNote String?
+  cancelReason String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  project     Project        @relation(fields: [projectId], references: [id])
+  workshop    Workshop       @relation(fields: [workshopId], references: [id])
+  createdBy   User           @relation("DailyTaskCreator", fields: [createdById], references: [id])
+  completedBy User?          @relation("DailyTaskCompleter", fields: [completedById], references: [id])
+  assignees   TaskAssignee[]
+  items       DailyTaskItem[]
+  comments    TaskComment[]
+
+  @@index([projectId])
+  @@index([workshopId, status])
+  @@index([assignedDate])
+  @@index([status, dueDate])
+  @@index([createdById, createdAt])
+  @@index([createdAt])
+}
+
+model TaskAssignee {
+  id      String    @id @default(cuid())
+  taskId  String
+  userId  String
+  seenAt  DateTime?
+  task    DailyTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@index([userId])
+}
+
+model DailyTaskItem {
+  id             String    @id @default(cuid())
+  taskId         String
+  title          String
+  description    String?
+  sortOrder      Int       @default(0)
+  isCompleted    Boolean   @default(false)
+  completedAt    DateTime?
+  completedById  String?
+  completionNote String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  task        DailyTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  completedBy User?     @relation("DailyItemCompleter", fields: [completedById], references: [id])
+  photos      TaskItemPhoto[]
+
+  @@index([taskId, sortOrder])
+  @@index([completedById])
+}
+
+// عکس اثبات انجام آیتم وظیفه — فایل خصوصی با Scope؛ Metadata کامل طبق استاندارد Enterprise
+model TaskItemPhoto {
+  id          String   @id @default(cuid())
+  itemId      String
+  fileName    String // نام نمایشی امن
+  mimeType    String // Magic Bytes
+  size        Int
+  storagePath String // کلید نسبی داخل Object Storage — هرگز از ورودی کاربر
+  storageProvider String @default("LOCAL") // LOCAL | S3
+  uploadedById String
+  createdAt   DateTime @default(now())
+
+  item       DailyTaskItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  uploadedBy User          @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+
+  @@index([itemId])
+  @@index([uploadedById])
+}
+
+model DailyReport {
+  id          String   @id @default(cuid())
+  projectId   String
+  workshopId  String
+  reporterId  String
+  reportDate  DateTime // نیمه‌شب تهران → UTC
+  title       String
+  content     String // متن نهایی گزارش
+  sourceType  String   @default("MANUAL") // MANUAL — ماژول صوت حذف شده است
+  status      String   @default("DRAFT") // DRAFT | SUBMITTED | REVIEWED
+  clientRequestId String? @unique // Idempotency — ضد تکرار در Offline Sync
+  reviewedById String?
+  reviewedAt  DateTime?
+  reviewNote  String?
+  submittedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project    Project    @relation(fields: [projectId], references: [id])
+  workshop   Workshop   @relation(fields: [workshopId], references: [id])
+  reporter   User       @relation("DailyReportReporter", fields: [reporterId], references: [id])
+  reviewedBy User?      @relation("DailyReportReviewer", fields: [reviewedById], references: [id])
+
+  @@index([projectId])
+  @@index([workshopId, status])
+  @@index([reporterId, createdAt])
+  @@index([reportDate])
+  @@index([status, submittedAt])
+  @@index([createdAt])
+}
+
+model TaskComment {
+  id         String   @id @default(cuid())
+  taskId     String
+  userId     String
+  content    String
+  createdAt  DateTime @default(now())
+
+  task  DailyTask  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
 }

@@ -1,7 +1,5 @@
-'use client'
+import AppRoot from '@/components/app/app-root'
 
-import AppRoot from '@/components/app/AppRoot'
-
-export default function Home() {
+export default function Page() {
   return <AppRoot />
 }

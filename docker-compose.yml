@@ -1,0 +1,86 @@
+# ─────────────────────────── استقرار کامل Enterprise ───────────────────────────
+# app (Next.js) + postgres 16 + minio (Object Storage) — همه با healthcheck
+# راه‌اندازی:  docker compose up -d --build
+# نکته: فایل .env کنار این فایل، مقادیر Secret را تأمین می‌کند (.env.example)
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: material_entry
+      POSTGRES_USER: ${POSTGRES_USER:-smi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD الزامی است}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-smi} -d material_entry']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-smi-storage}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD الزامی است}
+    ports:
+      - '9001:9001' # Console
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      sh -c "
+        mc alias set local http://minio:9000 $${MINIO_ROOT_USER:-smi-storage} $${MINIO_ROOT_PASSWORD} &&
+        mc mb --ignore-existing local/material-entry &&
+        echo 'bucket ready'
+      "
+
+  app:
+    build:
+      context: .
+      args:
+        SCHEMA: postgres
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-smi}:${POSTGRES_PASSWORD}@postgres:5432/material_entry?schema=public
+      SIGNED_URL_SECRET: ${SIGNED_URL_SECRET:?SIGNED_URL_SECRET الزامی است (openssl rand -hex 32)}
+      SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+      # Object Storage — MinIO
+      STORAGE_PROVIDER: s3
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: material-entry
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-smi-storage}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      S3_FORCE_PATH_STYLE: 'true'
+      # کانال‌های اعلان (اختیاری)
+      NOTIFY_SMS_WEBHOOK_URL: ${NOTIFY_SMS_WEBHOOK_URL:-}
+      NOTIFY_EMAIL_WEBHOOK_URL: ${NOTIFY_EMAIL_WEBHOOK_URL:-}
+      NOTIFY_PUSH_WEBHOOK_URL: ${NOTIFY_PUSH_WEBHOOK_URL:-}
+    ports:
+      - '3000:3000'
+
+volumes:
+  pgdata:
+  minio-data:

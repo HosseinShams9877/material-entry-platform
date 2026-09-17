@@ -1,18 +1,28 @@
 {
-  "name": "medical-device-mes",
-  "version": "1.0.0",
+  "name": "nextjs_tailwind_shadcn_ts",
+  "version": "0.2.1",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3000",
-    "build": "next build",
-    "start": "next start -p 3000",
+    "dev": "next dev -p 3000 2>&1 | tee dev.log",
+    "build": "next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
+    "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
     "lint": "eslint .",
-    "db:push": "prisma db push",
+    "db:push": "prisma db push --accept-data-loss",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
-    "db:seed": "tsx scripts/seed.ts",
-    "db:reset-business": "tsx scripts/reset_business.ts"
+    "cleanup:uploads": "bun scripts/cleanup-orphans.mjs --dry-run",
+    "cleanup:uploads:apply": "bun scripts/cleanup-orphans.mjs",
+    "db:deploy": "prisma migrate deploy",
+    "typecheck": "tsc --noEmit",
+    "test:daily": "bun scripts/daily-tasks-tests.mjs",
+    "db:backup": "node scripts/db-backup.mjs",
+    "db:restore": "node scripts/db-restore.mjs",
+    "db:pg-schema": "node scripts/gen-postgres-schema.mjs",
+    "test:enterprise": "bun scripts/enterprise-tests.mjs",
+    "test:modules": "bun scripts/modules-tests.mjs",
+    "test:proposal": "node scripts/proposal-tests.mjs",
+    "test:finance": "node scripts/finance-tests.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -56,7 +66,6 @@
     "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
     "embla-carousel-react": "^8.6.0",
-    "exceljs": "^4.4.0",
     "framer-motion": "^12.23.2",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.525.0",
@@ -64,6 +73,7 @@
     "next-auth": "^4.24.11",
     "next-intl": "^4.3.4",
     "next-themes": "^0.4.6",
+    "pagedjs": "^0.4.3",
     "prisma": "^6.11.1",
     "react": "^19.0.0",
     "react-day-picker": "^9.8.0",
@@ -79,7 +89,6 @@
     "tailwindcss-animate": "^1.0.7",
     "uuid": "^11.1.0",
     "vaul": "^1.1.2",
-    "z-ai-web-dev-sdk": "^0.0.18",
     "zod": "^4.0.2",
     "zustand": "^5.0.6"
   },
@@ -92,7 +101,6 @@
     "eslint-config-next": "^16.1.1",
     "tailwindcss": "^4",
     "tw-animate-css": "^1.3.5",
-    "typescript": "^5",
-    "tsx": "^4.19.2"
+    "typescript": "^5"
   }
 }

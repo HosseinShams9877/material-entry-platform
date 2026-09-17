@@ -1,10 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  output: "standalone",
+  // خطاهای TypeScript در Build مجاز نیستند — همه‌جا tsc پاس می‌شود
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
   },
+  // در Next 16 ESLint از Build جدا شده — با `npm run lint` اجرا کنید
   reactStrictMode: false,
 };
 
