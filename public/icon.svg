@@ -1,13 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#17181b"/>
-  <rect x="56" y="56" width="400" height="400" rx="80" fill="#232427"/>
-  <g transform="translate(96,96)">
-    <!-- box -->
-    <path d="M40 80 L160 20 L280 80 L280 240 L160 300 L40 240 Z" fill="#f5b82e" stroke="#f5b82e" stroke-width="16" stroke-linejoin="round"/>
-    <path d="M40 80 L160 140 L280 80" fill="none" stroke="#17181b" stroke-width="18" stroke-linejoin="round"/>
-    <path d="M160 140 L160 300" fill="none" stroke="#17181b" stroke-width="18"/>
-    <!-- check -->
-    <circle cx="160" cy="200" r="76" fill="#17181b" opacity="0.92"/>
-    <path d="M128 200 L152 224 L196 176" fill="none" stroke="#4ade80" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="#0f766e"/>
+  <path d="M32 14c-7.2 0-13 5.8-13 13 0 9.5 11.4 20.6 12.1 21.2.5.4 1.3.4 1.8 0C33.6 47.6 45 36.5 45 27c0-7.2-5.8-13-13-13z" fill="white" opacity="0.95"/>
+  <path d="M26.5 27.5l4 4.5 7-8" stroke="#0f766e" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
 </svg>
