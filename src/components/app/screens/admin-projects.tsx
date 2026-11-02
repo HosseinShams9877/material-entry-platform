@@ -327,60 +327,63 @@ function ProjectForm({
   const [isActive, setIsActive] = useState(project?.isActive ?? true)
   const [wsOpen, setWsOpen] = useState(false)
 
+  // نکته: SelectionSheet باید بیرون از Drawer.Content باشد؛ وگرنه رویدادهای آن
+  // به درخت والد تزریق شده و دیالوگ اصلی ناخواسته بسته می‌شود (باگ «انتخاب کارگاه»).
   return (
-    <div className="fixed inset-0 z-50 flex items-end" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/50" />
-      <div
-        className="relative w-full max-w-lg mx-auto rounded-t-2xl bg-card p-5 max-h-[92dvh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="font-semibold mb-4">{project ? 'ویرایش پروژه' : 'پروژه جدید'}</h3>
-        <div className="space-y-3">
-          <div>
-            <label className="block text-xs font-medium mb-1.5">نام پروژه <span className="text-red-500">*</span></label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} className="bg-secondary/60 border-0" />
+    <Drawer.Root open onOpenChange={(o) => !o && onClose()}>
+      <Drawer.Portal>
+        <Drawer.Overlay className="fixed inset-0 bg-black/50 z-50" />
+        <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 rounded-t-2xl bg-card outline-none max-h-[90dvh] overflow-y-auto">
+          <Drawer.Handle className="mx-auto mt-3 h-1.5 w-12 rounded-full bg-zinc-300" />
+          <div className="p-5">
+            <Drawer.Title className="font-semibold mb-4">{project ? 'ویرایش پروژه' : 'پروژه جدید'}</Drawer.Title>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium mb-1.5">نام پروژه <span className="text-red-500">*</span></label>
+                <Input value={name} onChange={(e) => setName(e.target.value)} className="bg-secondary/60 border-0" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1.5">کد پروژه <span className="text-red-500">*</span></label>
+                <Input dir="ltr" value={code} onChange={(e) => setCode(e.target.value)} className="bg-secondary/60 border-0 text-right" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1.5">کارفرما</label>
+                <Input value={clientName ?? ''} onChange={(e) => setClientName(e.target.value)} className="bg-secondary/60 border-0" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1.5">کارگاه مرتبط</label>
+                <button type="button" onClick={() => setWsOpen(true)} className="w-full rounded-xl border border-input bg-card px-4 py-2.5 text-sm text-right min-h-11">
+                  {workshopId ? workshops.find((w) => w.id === workshopId)?.name ?? '—' : 'انتخاب کارگاه…'}
+                </button>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium">فعال</span>
+                <Switch checked={isActive} onCheckedChange={setIsActive} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2.5 mt-5">
+              <Button variant="outline" onClick={onClose} className="h-12 rounded-xl">
+                انصراف
+              </Button>
+              <Button
+                onClick={() =>
+                  onSave({
+                    name: name.trim(),
+                    code: code.trim(),
+                    clientName: clientName.trim() || null,
+                    workshopId: workshopId ?? null,
+                    isActive,
+                  })
+                }
+                disabled={saving}
+                className="h-12 rounded-xl bg-accent hover:bg-accent/90 text-accent-foreground font-bold"
+              >
+                {saving ? 'در حال ذخیره…' : 'ذخیره'}
+              </Button>
+            </div>
           </div>
-          <div>
-            <label className="block text-xs font-medium mb-1.5">کد پروژه <span className="text-red-500">*</span></label>
-            <Input dir="ltr" value={code} onChange={(e) => setCode(e.target.value)} className="bg-secondary/60 border-0 text-right" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-1.5">کارفرما</label>
-            <Input value={clientName ?? ''} onChange={(e) => setClientName(e.target.value)} className="bg-secondary/60 border-0" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-1.5">کارگاه مرتبط</label>
-            <button type="button" onClick={() => setWsOpen(true)} className="w-full rounded-xl border border-input bg-card px-4 py-2.5 text-sm text-right min-h-11">
-              {workshopId ? workshops.find((w) => w.id === workshopId)?.name ?? '—' : 'انتخاب کارگاه…'}
-            </button>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium">فعال</span>
-            <Switch checked={isActive} onCheckedChange={setIsActive} />
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-2.5 mt-5">
-          <Button variant="outline" onClick={onClose} className="h-12 rounded-xl">
-            انصراف
-          </Button>
-          <Button
-            onClick={() =>
-              onSave({
-                name: name.trim(),
-                code: code.trim(),
-                clientName: clientName.trim() || null,
-                workshopId: workshopId ?? null,
-                isActive,
-              })
-            }
-            disabled={saving}
-            className="h-12 rounded-xl bg-accent hover:bg-accent/90 text-accent-foreground font-bold"
-          >
-            {saving ? 'در حال ذخیره…' : 'ذخیره'}
-          </Button>
-        </div>
-      </div>
-
+        </Drawer.Content>
+      </Drawer.Portal>
       <SelectionSheet
         open={wsOpen}
         onOpenChange={setWsOpen}
@@ -389,6 +392,6 @@ function ProjectForm({
         selected={workshopId ? [workshopId] : []}
         onConfirm={(ids) => setWorkshopId(ids[0] ?? null)}
       />
-    </div>
+    </Drawer.Root>
   )
 }

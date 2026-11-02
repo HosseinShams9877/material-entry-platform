@@ -31,8 +31,9 @@ export const GET = apiHandler(
     }
     if (projectId) and.push({ projectId })
     if (workshopId) and.push({ workshopId })
-    // فیلتر گزارش‌دهنده فقط برای مدیران معنا دارد — سرپرست همیشه فقط گزارش‌های خودش را می‌بیند
-    if (reporterId && scope.isGlobal) and.push({ reporterId })
+    // فیلتر گزارش‌دهنده — فیلتر اسکوپ بالاتر همیشه اعمال می‌شود؛ بنابراین reporterId برای
+    // کاربران کارگاه‌محور هم امن است و «فیلتر بر اساس نویسنده» در همه سطوح کار می‌کند.
+    if (reporterId) and.push({ reporterId })
     if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
       and.push({ reportDate: { gte: tehranDayStart(date), lt: tehranDayEnd(date) } })
     }

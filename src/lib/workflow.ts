@@ -18,6 +18,7 @@ import {
 } from '@/lib/entry-rules'
 import { ENTRY_STAGE_LABELS } from '@/lib/permissions'
 import { dispatchForNotificationRow } from '@/lib/notify-channels'
+import { notifyUsers } from '@/lib/notify'
 import { applyEntryStockIn } from '@/lib/inventory'
 
 // ─────────────────────────── تاریخچهٔ مراحل (Stage Log) ───────────────────────────
@@ -356,6 +357,25 @@ export async function reviewEntry(
   await writeAudit({ user, action: auditMap[action], entityType: 'MaterialEntry', entityId: entry.id, oldValue: { status: entry.status }, newValue: { status: statusMap[action] }, reason, ip, userAgent: ua })
   await logStage({ entryId: entry.id, stage: statusMap[action], action: auditMap[action], actorId: user.id, note: reason })
   await notifyUser(entry.supervisorId, notifMap[action][2], notifMap[action][0], notifMap[action][1], entry.id)
+  // تأیید مدیر → انبارداران همان کارگاه باید بدانند ثبت در انتظار تأیید انبار است
+  if (action === 'APPROVE') {
+    const keepers = await db.user.findMany({
+      where: {
+        isActive: true,
+        role: 'WAREHOUSE_KEEPER',
+        OR: [{ workshopId: entry.workshopId }, { userWorkshops: { some: { workshopId: entry.workshopId } } }],
+      },
+      select: { id: true },
+    })
+    await notifyUsers({
+      userIds: keepers.map((k) => k.id),
+      type: 'ENTRY_APPROVED',
+      title: 'در انتظار تأیید انبار',
+      body: `ثبت شمارهٔ ${entry.entryNumber} توسط مدیر تأیید شد — لطفاً ورود مصالح را در انبار تأیید کنید.`,
+      entityId: entry.id,
+      entityType: 'MaterialEntry',
+    }).catch(() => undefined)
+  }
   return updated
 }
 

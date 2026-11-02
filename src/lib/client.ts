@@ -577,6 +577,8 @@ export interface InventoryMovementItem {
   note: string | null
   purchaseRequestId: string | null
   purchaseRequestNumber: number | null
+  projectId: string | null
+  projectName: string | null
   createdByName: string
   createdAt: string
 }

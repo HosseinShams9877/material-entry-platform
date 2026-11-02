@@ -28,6 +28,10 @@ export type DailyNotificationType =
   | 'PURCHASE_RECEIVED'
   // هشدار درخواست بی‌پاسخ
   | 'PURCHASE_STALE'
+  // انبار — اعلام کمبود/مغایرت + مراحل ثبت
+  | 'STOCK_DISCREPANCY'
+  | 'ENTRY_APPROVED'
+  | 'ENTRY_STAGE'
 
 interface NotifyInput {
   userIds: string[]

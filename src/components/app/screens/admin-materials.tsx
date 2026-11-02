@@ -1,41 +1,66 @@
 "use client"
 
+import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { api, ClientApiError } from '@/lib/client'
 import { Button } from '@/components/ui/button'
-import { Plus, Pencil, Power, Search } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { Plus, Pencil, Power, Search, Settings2, Trash2, Check } from 'lucide-react'
 import { ScreenHeader, ListSkeleton, EmptyState, ErrorState, SelectionSheet } from '@/components/app/shared'
 import { Drawer } from 'vaul'
 import { Input } from '@/components/ui/input'
 import { toFa } from '@/lib/fa'
 import { ERROR_MSG } from '@/components/app/messages'
+import { cn } from '@/lib/utils'
+
+// ─────────────────────────── مدیریت مصالح + دسته‌بندی‌ها ───────────────────────────
 
 interface Material {
   id: string
   name: string
   category: string | null
+  categoryId: string | null
+  categoryRef: { id: string; name: string } | null
   defaultUnit: string | null
   workshopId: string | null
   isActive: boolean
 }
 
+interface CategoryItem {
+  id: string
+  name: string
+  isActive: boolean
+  _count?: { materials: number }
+}
+
 const UNITS = ['کیسه', 'تن', 'عدد', 'متر', 'مترمربع', 'مترمکعب', 'لیتر', 'بسته', 'پالت', 'دستگاه', 'ماشین', 'شاخه', 'رول']
-const CATEGORIES = ['سیمان', 'آهن‌آلات', 'بنایی', 'شن و ماسه', 'عایق', 'لوله و اتصالات', 'سیم و کابل', 'رنگ', 'کاشی و سرامیک', 'سایر']
 
 export default function AdminMaterials() {
   const [items, setItems] = useState<Material[]>([])
+  const [categories, setCategories] = useState<CategoryItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [query, setQuery] = useState('')
   const [editing, setEditing] = useState<Material | 'new' | null>(null)
   const [name, setName] = useState('')
-  const [category, setCategory] = useState('')
+  const [categoryId, setCategoryId] = useState('')
   const [defaultUnit, setDefaultUnit] = useState('')
   const [isActive, setIsActive] = useState(true)
   const [catOpen, setCatOpen] = useState(false)
   const [unitOpen, setUnitOpen] = useState(false)
+  const [manageCatsOpen, setManageCatsOpen] = useState(false)
   const [saving, setSaving] = useState(false)
+  // ایجاد دسته‌بندی جدید داخل شیت انتخاب
+  const [newCatName, setNewCatName] = useState('')
+  const [newCatSaving, setNewCatSaving] = useState(false)
+
+  const loadCategories = useCallback(async () => {
+    try {
+      const res = await api.get<{ categories: CategoryItem[] }>('/api/v1/admin/material-categories')
+      setCategories(res.categories)
+    } catch {
+      // خطا در بارگذاری دسته‌ها فرم را از کار نمی‌اندازد
+    }
+  }, [])
 
   async function load() {
     setLoading(true)
@@ -52,8 +77,65 @@ export default function AdminMaterials() {
 
   useEffect(() => {
     void load()
-     
-  }, [])
+    void loadCategories()
+  }, [loadCategories])
+
+  async function createCategory() {
+    const nameTrim = newCatName.trim()
+    if (nameTrim.length < 2) {
+      toast.error('نام دسته‌بندی را کامل‌تر وارد کنید.')
+      return
+    }
+    setNewCatSaving(true)
+    try {
+      await api.post('/api/v1/admin/material-categories', { name: nameTrim, isActive: true })
+      toast.success('دسته‌بندی جدید ایجاد شد.')
+      setNewCatName('')
+      await loadCategories()
+    } catch (err) {
+      if (err instanceof ClientApiError) toast.error(err.message)
+      else toast.error(ERROR_MSG)
+    } finally {
+      setNewCatSaving(false)
+    }
+  }
+
+  async function renameCategory(cat: CategoryItem, newName: string) {
+    const nameTrim = newName.trim()
+    if (nameTrim.length < 2 || nameTrim === cat.name) return
+    try {
+      await api.patch(`/api/v1/admin/material-categories/${cat.id}`, { name: nameTrim })
+      toast.success('دسته‌بندی ویرایش شد.')
+      await loadCategories()
+      await load()
+    } catch (err) {
+      if (err instanceof ClientApiError) toast.error(err.message)
+      else toast.error(ERROR_MSG)
+    }
+  }
+
+  async function toggleCategory(cat: CategoryItem) {
+    try {
+      await api.patch(`/api/v1/admin/material-categories/${cat.id}`, { isActive: !cat.isActive })
+      await loadCategories()
+      toast.success('وضعیت تغییر کرد.')
+    } catch (err) {
+      if (err instanceof ClientApiError) toast.error(err.message)
+      else toast.error(ERROR_MSG)
+    }
+  }
+
+  async function deleteCategory(cat: CategoryItem) {
+    try {
+      const res = await api.del<{ deleted?: boolean; deactivated?: boolean }>(`/api/v1/admin/material-categories/${cat.id}`)
+      toast.success(res.deactivated ? 'دسته‌بندی غیرفعال شد (مصالح متصل دارد).' : 'دسته‌بندی حذف شد.')
+      await loadCategories()
+      await load()
+    } catch (err) {
+      if (err instanceof ClientApiError) toast.error(err.message)
+      else toast.error(ERROR_MSG)
+    }
+  }
 
   async function save() {
     if (!name.trim()) {
@@ -62,7 +144,7 @@ export default function AdminMaterials() {
     }
     setSaving(true)
     try {
-      const payload = { name: name.trim(), category: category || null, defaultUnit: defaultUnit || null, isActive }
+      const payload = { name: name.trim(), categoryId: categoryId || null, defaultUnit: defaultUnit || null, isActive }
       if (editing === 'new') await api.post('/api/v1/admin/materials', payload)
       else if (editing) await api.patch(`/api/v1/admin/materials/${editing.id}`, payload)
       toast.success('ذخیره شد.')
@@ -76,6 +158,7 @@ export default function AdminMaterials() {
     }
   }
 
+  const activeCategories = categories.filter((c) => c.isActive)
   const filtered = query.trim() ? items.filter((m) => m.name.includes(query.trim())) : items
 
   return (
@@ -83,20 +166,26 @@ export default function AdminMaterials() {
       <ScreenHeader
         title="مصالح"
         right={
-          <Button
-            size="sm"
-            className="h-9 gap-1.5"
-            onClick={() => {
-              setName('')
-              setCategory('')
-              setDefaultUnit('')
-              setIsActive(true)
-              setEditing('new')
-            }}
-          >
-            <Plus className="size-4" />
-            جدید
-          </Button>
+          <div className="flex items-center gap-1.5">
+            <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => setManageCatsOpen(true)} aria-label="مدیریت دسته‌بندی‌ها">
+              <Settings2 className="size-4" />
+              دسته‌ها
+            </Button>
+            <Button
+              size="sm"
+              className="h-9 gap-1.5"
+              onClick={() => {
+                setName('')
+                setCategoryId('')
+                setDefaultUnit('')
+                setIsActive(true)
+                setEditing('new')
+              }}
+            >
+              <Plus className="size-4" />
+              جدید
+            </Button>
+          </div>
         }
       />
       <div className="p-4">
@@ -123,7 +212,7 @@ export default function AdminMaterials() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{m.name}</p>
                   <p className="text-[11px] text-muted-foreground mt-0.5">
-                    {m.category ?? '—'} · واحد پیش‌فرض: {m.defaultUnit ?? '—'}
+                    {m.categoryRef?.name ?? m.category ?? '—'} · واحد پیش‌فرض: {m.defaultUnit ?? '—'}
                   </p>
                 </div>
                 {!m.isActive ? <span className="text-[10px] bg-zinc-100 text-zinc-500 rounded-md px-1.5 py-0.5">غیرفعال</span> : null}
@@ -132,7 +221,7 @@ export default function AdminMaterials() {
                   onClick={() => {
                     setEditing(m)
                     setName(m.name)
-                    setCategory(m.category ?? '')
+                    setCategoryId(m.categoryRef?.id ?? '')
                     setDefaultUnit(m.defaultUnit ?? '')
                     setIsActive(m.isActive)
                   }}
@@ -159,7 +248,7 @@ export default function AdminMaterials() {
         )}
       </div>
 
-      {/* فرم */}
+      {/* فرم مصالح */}
       {editing ? (
         <div className="fixed inset-0 z-50 flex items-end" onClick={() => setEditing(null)}>
           <div className="absolute inset-0 bg-black/50" />
@@ -176,7 +265,7 @@ export default function AdminMaterials() {
               <div>
                 <label className="block text-xs font-medium mb-1.5">دسته‌بندی</label>
                 <button type="button" onClick={() => setCatOpen(true)} className="w-full rounded-xl border border-input bg-card px-4 py-2.5 text-sm text-right min-h-11">
-                  {category || 'انتخاب دسته…'}
+                  {categories.find((c) => c.id === categoryId)?.name || 'انتخاب دسته…'}
                 </button>
               </div>
               <div>
@@ -202,29 +291,95 @@ export default function AdminMaterials() {
         </div>
       ) : null}
 
+      {/* شیت انتخاب دسته‌بندی + ایجاد دستهٔ جدید */}
       <Drawer.Root open={catOpen} onOpenChange={setCatOpen}>
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 bg-black/40 z-50" />
           <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 rounded-t-2xl bg-card outline-none max-h-[70dvh] overflow-y-auto">
             <Drawer.Handle className="mx-auto mt-3 h-1.5 w-12 rounded-full bg-zinc-300" />
+            <Drawer.Title className="sr-only">انتخاب دسته‌بندی</Drawer.Title>
             <div className="p-4">
-              {CATEGORIES.map((c) => (
+              {activeCategories.map((c) => (
                 <button
-                  key={c}
+                  key={c.id}
                   type="button"
                   onClick={() => {
-                    setCategory(c)
+                    setCategoryId(c.id)
                     setCatOpen(false)
                   }}
-                  className="w-full text-right rounded-xl px-4 py-3 hover:bg-secondary min-h-11"
+                  className="w-full text-right rounded-xl px-4 py-3 hover:bg-secondary min-h-11 flex items-center justify-between"
                 >
-                  {c}
+                  <span>{c.name}</span>
+                  {categoryId === c.id ? <Check className="size-4 text-accent" /> : null}
                 </button>
               ))}
+              {activeCategories.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">هنوز دسته‌بندی‌ای ثبت نشده است.</p>
+              ) : null}
+
+              {/* ایجاد دسته‌بندی جدید */}
+              <div className="mt-3 pt-3 border-t border-border">
+                <p className="text-xs font-medium mb-2">ایجاد دسته‌بندی جدید</p>
+                <div className="flex gap-2">
+                  <Input
+                    value={newCatName}
+                    onChange={(e) => setNewCatName(e.target.value)}
+                    placeholder="نام دسته‌بندی جدید…"
+                    className="h-11 bg-secondary/60"
+                    maxLength={80}
+                    onKeyDown={(e) => e.key === 'Enter' && void createCategory()}
+                  />
+                  <Button className="h-11 shrink-0" onClick={() => void createCategory()} disabled={newCatSaving}>
+                    <Plus className="size-4" />
+                  </Button>
+                </div>
+              </div>
             </div>
           </Drawer.Content>
         </Drawer.Portal>
       </Drawer.Root>
+
+      {/* مدیریت دسته‌بندی‌ها — تغییر نام، فعال/غیرفعال، حذف */}
+      <Drawer.Root open={manageCatsOpen} onOpenChange={setManageCatsOpen}>
+        <Drawer.Portal>
+          <Drawer.Overlay className="fixed inset-0 bg-black/40 z-50" />
+          <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 rounded-t-2xl bg-card outline-none max-h-[75dvh] flex flex-col">
+            <Drawer.Handle className="mx-auto mt-3 h-1.5 w-12 rounded-full bg-zinc-300" />
+            <div className="px-5 pt-3 pb-2">
+              <Drawer.Title className="font-semibold">مدیریت دسته‌بندی‌ها</Drawer.Title>
+              <p className="text-[11px] text-muted-foreground mt-0.5">تغییر نام، فعال/غیرفعال یا حذف دسته‌ها</p>
+            </div>
+            <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-1.5">
+              {categories.map((c) => (
+                <CategoryRow
+                  key={c.id}
+                  cat={c}
+                  onRename={(newName) => void renameCategory(c, newName)}
+                  onToggle={() => void toggleCategory(c)}
+                  onDelete={() => void deleteCategory(c)}
+                />
+              ))}
+              {categories.length === 0 ? <p className="text-sm text-muted-foreground text-center py-6">دسته‌بندی‌ای نیست.</p> : null}
+            </div>
+            <div className="safe-top px-5 pb-4 pt-2 border-t border-border">
+              <div className="flex gap-2">
+                <Input
+                  value={newCatName}
+                  onChange={(e) => setNewCatName(e.target.value)}
+                  placeholder="نام دسته‌بندی جدید…"
+                  className="h-11 bg-secondary/60"
+                  maxLength={80}
+                  onKeyDown={(e) => e.key === 'Enter' && void createCategory()}
+                />
+                <Button className="h-11 shrink-0" onClick={() => void createCategory()} disabled={newCatSaving}>
+                  <Plus className="size-4" />
+                </Button>
+              </div>
+            </div>
+          </Drawer.Content>
+        </Drawer.Portal>
+      </Drawer.Root>
+
       <SelectionSheet
         open={unitOpen}
         onOpenChange={setUnitOpen}
@@ -234,6 +389,92 @@ export default function AdminMaterials() {
         selected={[]}
         onConfirm={(ids) => setDefaultUnit(ids[0] ?? '')}
       />
+    </div>
+  )
+}
+
+// ─────────────────────────── ردیف دسته‌بندی با ویرایش خطی ───────────────────────────
+
+function CategoryRow({
+  cat,
+  onRename,
+  onToggle,
+  onDelete,
+}: {
+  cat: CategoryItem
+  onRename: (newName: string) => void
+  onToggle: () => void
+  onDelete: () => void
+}) {
+  const [editingName, setEditingName] = useState(false)
+  const [draft, setDraft] = useState(cat.name)
+
+  if (editingName) {
+    return (
+      <div className="flex gap-2 items-center">
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          className="h-10 bg-secondary/60"
+          maxLength={80}
+          autoFocus
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              onRename(draft)
+              setEditingName(false)
+            }
+            if (e.key === 'Escape') setEditingName(false)
+          }}
+        />
+        <Button
+          size="icon"
+          className="size-10 shrink-0"
+          onClick={() => {
+            onRename(draft)
+            setEditingName(false)
+          }}
+          aria-label="ذخیره نام"
+        >
+          <Check className="size-4" />
+        </Button>
+        <Button size="icon" variant="outline" className="size-10 shrink-0" onClick={() => setEditingName(false)} aria-label="انصراف">
+          <Trash2 className="size-4 rotate-45" />
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <div className={cn('flex items-center gap-2.5 rounded-xl border border-border bg-card px-3 py-2', !cat.isActive ? 'opacity-50' : '')}>
+      <span className={cn('flex-1 text-sm leading-6', !cat.isActive ? 'line-through' : '')}>{cat.name}</span>
+      {cat._count ? <span className="text-[10px] text-muted-foreground shrink-0">{toFa(cat._count.materials)} مصالح</span> : null}
+      <button
+        type="button"
+        onClick={() => {
+          setDraft(cat.name)
+          setEditingName(true)
+        }}
+        className="size-9 rounded-lg flex items-center justify-center text-accent hover:bg-secondary shrink-0"
+        aria-label="تغییر نام"
+      >
+        <Pencil className="size-4" />
+      </button>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="size-9 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-secondary shrink-0"
+        aria-label="فعال/غیرفعال"
+      >
+        <Power className="size-4" />
+      </button>
+      <button
+        type="button"
+        onClick={onDelete}
+        className="size-9 rounded-lg flex items-center justify-center text-red-400 hover:bg-red-50 shrink-0"
+        aria-label="حذف"
+      >
+        <Trash2 className="size-4" />
+      </button>
     </div>
   )
 }

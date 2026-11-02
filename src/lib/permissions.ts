@@ -46,6 +46,7 @@ export const PERMISSIONS = {
   // انبار کارگاه
   'inventory.view': 'مشاهده موجودی و گردش انبار',
   'inventory.manage': 'ثبت خروج/تعدیل موجودی انبار',
+  'inventory.discrepancy': 'اعلام کمبود و مغایرت انبار',
   // چک‌لیست پروژه
   'checklist.update': 'به‌روزرسانی چک‌لیست پروژه',
   // گزارش کار کارگران
@@ -61,12 +62,14 @@ export type PermissionKey = keyof typeof PERMISSIONS
 
 export const ALL_PERMISSIONS = Object.keys(PERMISSIONS) as PermissionKey[]
 
-// ── مدل سه‌نقشی نرم‌افزار (درخواست کارفرما) ──
+// ── مدل نقش‌ها (درخواست کارفرما) ──
 // مدیر پروژه‌ها → دسترسی کامل سازمانی (ادمین + مدیر + امضای صورت وضعیت‌های بزرگ)
-// سرپرست کارگاه → عملیات کارگاه‌های تحت سرپرستی (یک یا چند کارگاه) + وظایف انباری
+// انباردار → پنل جداگانه انبار: تأیید ورود/خروج، ثبت گردش، تعدیل موجودی، اعلام کمبود/مغایرت (فقط کارگاه‌های خودش)
+// سرپرست کارگاه → عملیات کارگاه‌های تحت سرپرستی (یک یا چند کارگاه) + دریافت مغایرت‌ها
 // کارگر → فقط وظایف و گزارش کار خودش
 export const ROLES = {
   PROJECT_MANAGER: 'مدیر پروژه‌ها',
+  WAREHOUSE_KEEPER: 'انباردار',
   SITE_SUPERVISOR: 'سرپرست کارگاه',
   FIELD_WORKER: 'کارگر',
 } as const
@@ -76,7 +79,7 @@ export type RoleKey = keyof typeof ROLES
 export const ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
   // مدیر پروژه‌ها — دسترسی کامل (مدیریت، تأیید، امضا، گزارش‌گیری سازمانی)
   PROJECT_MANAGER: ALL_PERMISSIONS,
-  // سرپرست کارگاه — ادغام وظایف سرپرست قبلی + انباردار (تأیید انبار و دریافت خرید)
+  // سرپرست کارگاه — عملیات کارگاه‌های تحت سرپرستی + تأیید انبار (وظایف ادغام‌شده قبلی)
   SITE_SUPERVISOR: [
     'entry.create',
     'entry.edit',
@@ -99,8 +102,22 @@ export const ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
     'purchase.receive',
     'inventory.view',
     'inventory.manage',
+    'inventory.discrepancy',
     'workreport.view',
     'workreport.create',
+  ],
+  // انباردار — پنل جداگانه انبار: تأیید ورود/تحویل، ثبت گردش، تعدیل موجودی، اعلام کمبود/مغایرت
+  WAREHOUSE_KEEPER: [
+    'entry.warehouse',
+    'audit.view',
+    'reports.view',
+    'task.view',
+    'purchase.view',
+    'purchase.receive',
+    'inventory.view',
+    'inventory.manage',
+    'inventory.discrepancy',
+    'workreport.view',
   ],
   // کارگر — فقط وظایف و گزارش کار خودش
   FIELD_WORKER: [
@@ -292,6 +309,26 @@ export const INVENTORY_REASONS = {
   ADJUST: 'تعدیل موجودی',
 } as const
 export type InventoryReasonKey = keyof typeof INVENTORY_REASONS
+
+// اعلام کمبود و مغایرت انبار
+export const DISCREPANCY_KINDS = {
+  SHORTAGE: 'کمبود موجودی',
+  MISMATCH: 'مغایرت شمارش',
+  SURPLUS: 'مازاد انبار',
+} as const
+export type DiscrepancyKindKey = keyof typeof DISCREPANCY_KINDS
+
+export const DISCREPANCY_KIND_STYLES: Record<string, { badge: string; dot: string }> = {
+  SHORTAGE: { badge: 'bg-red-50 text-red-700 border-red-200', dot: 'bg-red-500' },
+  MISMATCH: { badge: 'bg-orange-50 text-orange-700 border-orange-200', dot: 'bg-orange-500' },
+  SURPLUS: { badge: 'bg-cyan-50 text-cyan-700 border-cyan-200', dot: 'bg-cyan-600' },
+}
+
+export const DISCREPANCY_STATUSES = {
+  OPEN: 'باز',
+  RESOLVED: 'برطرف شد',
+} as const
+export type DiscrepancyStatusKey = keyof typeof DISCREPANCY_STATUSES
 
 // ─────────────────────────── زنجیرهٔ حرفه‌ای Workflow ثبت ───────────────────────────
 // مسیر کامل: DRAFT → SUBMITTED → TECH_REVIEW → TECH_REVIEWED → APPROVED →

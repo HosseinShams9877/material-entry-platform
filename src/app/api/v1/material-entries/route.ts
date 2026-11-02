@@ -48,7 +48,10 @@ export const GET = apiHandler(async ({ req, user }) => {
     AND: [
       entryScopeFilter(scope),
       ...(dateFilter ? [dateFilter] : []),
-      ...(status && status !== 'ALL' ? [{ status }] : []),
+      // status — تکی یا CSV (مثلاً status=APPROVED,LOCKED برای صف تأیید انبار)
+      ...(status && status !== 'ALL'
+        ? [{ status: { in: status.split(',').map((s) => s.trim()).filter(Boolean) } }]
+        : []),
       ...(type && type !== 'ALL' ? [{ type }] : []),
       // فقط ثبت‌های Submit شده + پیش‌نویس‌های خود کاربر
       ...(user.role === 'SITE_SUPERVISOR' ? [{ OR: [{ status: { not: 'DRAFT' } }, { supervisorId: user.id }] }] : []),
@@ -171,7 +174,15 @@ export const POST = apiHandler(
       }
     }
     if (input.sourceType === 'SUPPLIER' && input.sourceSupplierId) {
-      const supplier = await db.supplier.findFirst({ where: { id: input.sourceSupplierId, ...(!scope.isGlobal ? { workshopId: { in: scope.workshopIds } } : {}) } })
+      // تأمین‌کننده چند-کارگاهی — کارگاه اصلی یا هر‌یک از کارگاه‌های assign‌شده
+      const supplier = await db.supplier.findFirst({
+        where: {
+          id: input.sourceSupplierId,
+          ...(scope.isGlobal
+            ? {}
+            : { OR: [{ workshopId: { in: scope.workshopIds } }, { workshopAccess: { some: { workshopId: { in: scope.workshopIds } } } }] }),
+        },
+      })
       if (!supplier) throw new ApiError(403, 'FORBIDDEN_SUPPLIER', 'تأمین‌کننده انتخاب‌شده معتبر نیست.')
     }
     if (input.sourceType === 'WORKSHOP' && input.sourceWorkshopId) {

@@ -29,18 +29,18 @@ export const POST = apiHandler(
       throw new ApiError(422, 'NO_ASSIGNEE', 'حداقل یک سرپرست باید انتخاب شود.')
     }
 
-    // گیرنده باید سرپرست فعالِ همان کارگاه باشد — جعل شناسه رد می‌شود
+    // گیرنده باید سرپرست یا انباردار فعالِ همان کارگاه باشد — جعل شناسه رد می‌شود
     const validAssignees = await db.user.findMany({
       where: {
         id: { in: targetIds },
         isActive: true,
-        role: 'SITE_SUPERVISOR',
+        role: { in: ['SITE_SUPERVISOR', 'WAREHOUSE_KEEPER'] },
         OR: [{ workshopId: existing.workshopId }, { userWorkshops: { some: { workshopId: existing.workshopId } } }],
       },
       select: { id: true, fullName: true },
     })
     if (validAssignees.length !== targetIds.length) {
-      throw new ApiError(422, 'INVALID_ASSIGNEE', 'برخی سرپرستان انتخاب‌شده معتبر نیستند یا به این کارگاه تعلق ندارند.')
+      throw new ApiError(422, 'INVALID_ASSIGNEE', 'برخی گیرندگان انتخاب‌شده معتبر نیستند یا به این کارگاه تعلق ندارند.')
     }
 
     const isFirstSend = existing.status === 'DRAFT'

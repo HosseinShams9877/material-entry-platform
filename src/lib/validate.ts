@@ -145,14 +145,22 @@ export const projectSchema = z.object({
 export const materialSchema = z.object({
   name: z.string({ message: 'نام مصالح را وارد کنید.' }).trim().min(2, 'نام مصالح را کامل‌تر وارد کنید.').max(150),
   category: z.string().trim().max(80).optional().nullable(),
+  categoryId: z.string().trim().optional().nullable(),
   defaultUnit: z.string().trim().max(50).optional().nullable(),
   workshopId: z.string().trim().optional().nullable(),
+  isActive: z.boolean().default(true),
+})
+// دسته‌بندی مصالح — ایجاد/ویرایش از پنل مدیریت
+export const materialCategorySchema = z.object({
+  name: z.string({ message: 'نام دسته‌بندی را وارد کنید.' }).trim().min(2, 'نام دسته‌بندی را کامل‌تر وارد کنید.').max(80),
   isActive: z.boolean().default(true),
 })
 export const supplierSchema = z.object({
   name: z.string({ message: 'نام تأمین‌کننده را وارد کنید.' }).trim().min(2, 'نام تأمین‌کننده را کامل‌تر وارد کنید.').max(150),
   phone: z.string().trim().max(20).optional().nullable(),
   workshopId: z.string().trim().optional().nullable(),
+  // چند-کارگاهی — تأمین‌کننده می‌تواند به چند کارگاه assign شود
+  workshopIds: z.array(z.string().trim().min(1)).max(50).optional().nullable(),
   isActive: z.boolean().default(true),
 })
 export const workerSchema = z.object({
@@ -361,12 +369,37 @@ export const inventoryMovementSchema = z.object({
   quantity: qtySchema,
   direction: z.enum(['IN', 'OUT'], { message: 'جهت گردش را انتخاب کنید.' }),
   reason: z.enum(['ISSUE', 'RETURN', 'ADJUST'], { message: 'علت گردش را انتخاب کنید.' }).default('ISSUE'),
+  projectId: z.string().trim().optional().nullable(), // پروژهٔ مرتبط (اختیاری)
   note: z.string().trim().max(500).optional().nullable(),
 })
 export type InventoryMovementInput = z.infer<typeof inventoryMovementSchema>
 
 export const stockMinQuantitySchema = z.object({
   minQuantity: z.coerce.number().min(0, 'حداقل موجودی نمی‌تواند منفی باشد.').max(1_000_000_000).nullable(),
+})
+
+// تغییر دستی موجودی انبار توسط انباردار — گردش ADJUST خودکار ثبت می‌شود
+export const stockAdjustSchema = z.object({
+  quantity: qtySchema,
+  note: z.string().trim().max(500).optional().nullable(),
+})
+
+// اعلام کمبود/مغایرت انبار
+export const discrepancyCreateSchema = z.object({
+  workshopId: z.string({ message: 'کارگاه را انتخاب کنید.' }).trim().min(1, 'کارگاه را انتخاب کنید.'),
+  projectId: z.string().trim().optional().nullable(),
+  stockId: z.string().trim().optional().nullable(),
+  materialName: z.string({ message: 'نام مصالح را وارد کنید.' }).trim().min(1, 'نام مصالح را وارد کنید.').max(200),
+  unit: z.string({ message: 'واحد را انتخاب کنید.' }).trim().min(1, 'واحد را انتخاب کنید.').max(50),
+  systemQty: qtySchema.nullable().optional(),
+  actualQty: qtySchema.nullable().optional(),
+  kind: z.enum(['SHORTAGE', 'MISMATCH', 'SURPLUS'], { message: 'نوع اعلام را انتخاب کنید.' }).default('MISMATCH'),
+  note: z.string().trim().max(500).optional().nullable(),
+})
+export type DiscrepancyCreateInput = z.infer<typeof discrepancyCreateSchema>
+
+export const discrepancyResolveSchema = z.object({
+  resolveNote: z.string().trim().max(500).optional().nullable(),
 })
 
 // ─────────────────────────── جابجایی نیرو ───────────────────────────

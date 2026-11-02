@@ -68,6 +68,8 @@ model User {
   purchasesRejected  PurchaseRequest[]   @relation("PurchaseRejecter")
   workReportsCreated WorkReport[]        @relation("WorkReportCreator")
   workerGoalsCreated WorkerGoal[]        @relation("WorkerGoalCreator")
+  discrepanciesCreated StockDiscrepancy[] @relation("StockDiscrepancyCreator")
+  discrepanciesResolved StockDiscrepancy[] @relation("StockDiscrepancyResolver")
 
   @@index([role])
   @@index([workshopId])
@@ -157,6 +159,8 @@ model Workshop {
   statements   ProgressStatement[] @relation("StatementWorkshop")
   purchases    PurchaseRequest[]   @relation("PurchaseWorkshop")
   workReports  WorkReport[]        @relation("WorkReportWorkshop")
+  stockDiscrepancies StockDiscrepancy[]
+  supplierAccess SupplierWorkshop[]
 
   @@index([isActive])
 }
@@ -180,6 +184,8 @@ model Project {
   purchases   PurchaseRequest[]   @relation("PurchaseProject")
   workReports WorkReport[]        @relation("WorkReportProject")
   checklistItems ProjectChecklistItem[]
+  inventoryMovements InventoryMovement[] @relation("InventoryMovementProject")
+  stockDiscrepancies StockDiscrepancy[] @relation("StockDiscrepancyProject")
 
   @@index([workshopId])
   @@index([isActive])
@@ -219,26 +225,54 @@ model Supplier {
   updatedAt DateTime @updatedAt
 
   workshop Workshop? @relation(fields: [workshopId], references: [id])
+  workshopAccess SupplierWorkshop[]
   sourceEntries MaterialEntry[]
 
   @@index([workshopId])
   @@index([name])
 }
 
+// تأمین‌کننده چند-کارگاهی — یک تأمین‌کننده می‌تواند به چند کارگاه assign شود
+model SupplierWorkshop {
+  id         String @id @default(cuid())
+  supplierId String
+  workshopId String
+
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  workshop Workshop @relation(fields: [workshopId], references: [id], onDelete: Cascade)
+
+  @@unique([supplierId, workshopId])
+  @@index([workshopId])
+}
+
 model Material {
   id          String   @id @default(cuid())
   name        String
   category    String?
+  categoryId  String? // دسته‌بندی مصالح — مرتبط با جدول MaterialCategory
   defaultUnit String? // کیسه / تن / عدد ...
   workshopId  String?
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  workshop Workshop? @relation(fields: [workshopId], references: [id])
+  workshop    Workshop?         @relation(fields: [workshopId], references: [id])
+  categoryRef MaterialCategory? @relation("MaterialCategoryRef", fields: [categoryId], references: [id])
 
   @@index([workshopId])
   @@index([name])
+  @@index([categoryId])
+}
+
+// دسته‌بندی مصالح — قابل ایجاد/ویرایش از پنل مدیریت
+model MaterialCategory {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  materials Material[] @relation("MaterialCategoryRef")
 }
 
 model MaterialUnit {
@@ -546,6 +580,7 @@ model InventoryStock {
 
   workshop  Workshop           @relation(fields: [workshopId], references: [id])
   movements InventoryMovement[]
+  discrepancies StockDiscrepancy[]
 
   @@unique([workshopId, materialName, unit])
   @@index([workshopId])
@@ -572,12 +607,47 @@ model InventoryMovement {
   workshop    Workshop         @relation(fields: [workshopId], references: [id])
   stock       InventoryStock?  @relation(fields: [stockId], references: [id])
   purchaseRequest PurchaseRequest? @relation(fields: [purchaseRequestId], references: [id])
+  projectId   String? // پروژهٔ مرتبط با گردش (اختیاری — ثبت ورود/خروج پروژه‌محور)
+  project     Project?         @relation("InventoryMovementProject", fields: [projectId], references: [id])
   createdBy   User             @relation("InventoryMovementCreator", fields: [createdById], references: [id])
 
   @@index([workshopId, createdAt])
   @@index([stockId])
   @@index([purchaseRequestId])
   @@index([direction, reason])
+  @@index([projectId])
+}
+
+// اعلام کمبود/مغایرت انبار — توسط انباردار؛ برای سرپرست کارگاه نوتیف می‌شود
+// StockDiscrepancyKind: SHORTAGE (کمبود) | MISMATCH (مغایرت شمارش) | SURPLUS (مازاد)
+// StockDiscrepancyStatus: OPEN | RESOLVED
+model StockDiscrepancy {
+  id           String   @id @default(cuid())
+  workshopId   String
+  projectId    String?
+  stockId      String?
+  materialName String
+  unit         String
+  systemQty    Float? // موجودی دفتری
+  actualQty    Float? // موجودی فیزیکی شمارش‌شده
+  kind         String   @default("MISMATCH")
+  note         String?
+  status       String   @default("OPEN")
+  resolveNote  String?
+  resolvedById String?
+  resolvedAt   DateTime?
+  createdById  String
+  createdAt    DateTime @default(now())
+
+  workshop    Workshop          @relation(fields: [workshopId], references: [id])
+  project     Project?          @relation("StockDiscrepancyProject", fields: [projectId], references: [id])
+  stock       InventoryStock?   @relation(fields: [stockId], references: [id])
+  createdBy   User              @relation("StockDiscrepancyCreator", fields: [createdById], references: [id])
+  resolvedBy  User?             @relation("StockDiscrepancyResolver", fields: [resolvedById], references: [id])
+
+  @@index([workshopId, status])
+  @@index([projectId])
+  @@index([createdById])
 }
 
 // ─────────────────────────── چک‌لیست پروژه ───────────────────────────

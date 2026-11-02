@@ -10,6 +10,7 @@ import { useApp } from '@/store/app'
 const DEMO_ACCOUNTS = [
   { username: 'manager.sa', label: 'مدیر پروژه‌ها' },
   { username: 'supervisor.sa', label: 'سرپرست کارگاه' },
+  { username: 'warehouse.sa', label: 'انباردار' },
   { username: 'worker.sa', label: 'کارگر' },
 ]
 
@@ -36,6 +37,7 @@ export default function LoginScreen() {
       const role = me.user.role
       if (role === 'PROJECT_MANAGER') resetTo('manager-dashboard')
       else if (role === 'FIELD_WORKER') resetTo('worker-home')
+      else if (role === 'WAREHOUSE_KEEPER') resetTo('warehouse-home')
       else resetTo('supervisor-home')
     } catch (err) {
       if (err instanceof ClientApiError) toast.error(err.message)

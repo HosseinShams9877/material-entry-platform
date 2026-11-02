@@ -43,6 +43,8 @@ export default function DailyTaskForm({ params }: { params?: Record<string, unkn
   const [saving, setSaving] = useState(false)
   const [sheet, setSheet] = useState<SheetKind>(null)
   const [newItemTitle, setNewItemTitle] = useState('')
+  // وضعیت وظیفه در حالت ویرایش — تعیین‌کنندهٔ برچسب دکمهٔ ارسال (ارسال ویرایش)
+  const [editWasSent, setEditWasSent] = useState(false)
 
   // بارگذاری Master Data + دادهٔ ویرایش
   useEffect(() => {
@@ -72,6 +74,8 @@ export default function DailyTaskForm({ params }: { params?: Record<string, unkn
         setPriority(task.priority as typeof priority)
         setAssigneeIds(task.assignees.map((a) => a.id))
         setAssignedDate(formatJalaliTehranToISO(task.assignedDate))
+        // وظیفه قبلاً برای گیرندگان ارسال شده → دکمهٔ «ارسال ویرایش»
+        setEditWasSent(task.status !== 'DRAFT' && task.sentAt !== null)
         if (task.dueDate) {
           setDueDate(formatJalaliTehranToISO(task.dueDate))
           setDueTime(new Date(task.dueDate).toISOString().slice(11, 16))
@@ -165,7 +169,10 @@ export default function DailyTaskForm({ params }: { params?: Record<string, unkn
         const res = await api.post<{ taskId: string }>('/api/v1/daily-tasks', buildPayload())
         taskId = res.taskId
       }
-      if (sendAfter && taskId) {
+      // وظیفهٔ ارسال‌شده: ویرایش بدون فراخوانی /send — سرور خودش به گیرندگان اعلان «به‌روزرسانی» می‌دهد
+      if (sendAfter && taskId && editId && editWasSent) {
+        toast.success('ویرایش برای گیرندگان ارسال شد.')
+      } else if (sendAfter && taskId) {
         if (assigneeIds.length === 0) {
           toast.error('برای ارسال، حداقل یک سرپرست انتخاب کنید.')
           setSaving(false)
@@ -202,7 +209,7 @@ export default function DailyTaskForm({ params }: { params?: Record<string, unkn
     <div className="max-w-lg mx-auto pb-8">
       <ScreenHeader
         title={editId ? 'ویرایش وظیفه' : 'وظیفهٔ روزانه جدید'}
-        subtitle="پس از ارسال، سرپرست اعلان دریافت می‌کند"
+        subtitle={editId && editWasSent ? 'ویرایش برای گیرندگان اعلان می‌شود' : 'پس از ارسال، سرپرست اعلان دریافت می‌کند'}
         onBack={back}
       />
 
@@ -345,7 +352,7 @@ export default function DailyTaskForm({ params }: { params?: Record<string, unkn
           </Button>
           <Button type="button" className="h-12 bg-accent hover:bg-accent/90 text-accent-foreground" onClick={() => void save(true)} disabled={saving}>
             {saving ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-            ارسال وظیفه
+            {editId && editWasSent ? 'ارسال ویرایش' : 'ارسال وظیفه'}
           </Button>
         </div>
       </div>

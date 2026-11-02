@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from 'react'
-import { PenLine, ChevronLeft, Wrench, ListTodo, FileBarChart2, ClipboardList, ShoppingCart, FileSignature, Package } from 'lucide-react'
+import { PenLine, ChevronLeft, Wrench, ListTodo, FileBarChart2, ClipboardList, ShoppingCart, FileSignature, Package, AlertTriangle } from 'lucide-react'
 import { api, type DashboardSupervisor, type DailyTaskListItem } from '@/lib/client'
 import { useApp } from '@/store/app'
 import { StatCard, ListSkeleton, StatusBadge, TypeBadge } from '@/components/app/shared'
@@ -10,10 +10,25 @@ import { formatRelative, formatQty, toFa } from '@/lib/fa'
 import { Button } from '@/components/ui/button'
 import { ERROR_MSG } from '@/components/app/messages'
 
+interface DiscrepancyItem {
+  id: string
+  materialName: string
+  unit: string
+  kind: string
+  status: string
+  workshopName: string
+  systemQty: number | null
+  actualQty: number | null
+  note: string | null
+  createdByName: string
+  createdAt: string
+}
+
 export default function SupervisorHome() {
   const [data, setData] = useState<DashboardSupervisor | null>(null)
   const [error, setError] = useState('')
   const [todayTasks, setTodayTasks] = useState<DailyTaskListItem[] | null>(null)
+  const [discrepancies, setDiscrepancies] = useState<DiscrepancyItem[]>([])
   const navigate = useApp((s) => s.navigate)
   const session = useApp((s) => s.session)
   const role = useRole()
@@ -27,6 +42,11 @@ export default function SupervisorHome() {
       .get<{ tasks: DailyTaskListItem[] }>('/api/v1/daily-tasks?mine=1&pageSize=3')
       .then((d) => setTodayTasks(d.tasks))
       .catch(() => setTodayTasks([]))
+    // اعلام‌های کمبود/مغایرت انبار — سرپرست باید ببیند
+    api
+      .get<{ discrepancies: DiscrepancyItem[] }>('/api/v1/inventory/discrepancies?status=OPEN')
+      .then((d) => setDiscrepancies(d.discrepancies))
+      .catch(() => setDiscrepancies([]))
   }, [])
 
   async function load() {
@@ -60,6 +80,28 @@ export default function SupervisorHome() {
           {session?.workshops[0]?.name ?? 'کارگاه شما'}
         </p>
       </div>
+
+      {/* هشدار اعلام‌های کمبود/مغایرت انبار — برای سرپرست کارگاه */}
+      {role === 'SITE_SUPERVISOR' && discrepancies.length > 0 ? (
+        <div className="px-4 mb-6">
+          <button
+            type="button"
+            onClick={() => navigate('inventory')}
+            className="w-full rounded-2xl border border-orange-200 bg-orange-50 p-4 text-right active:scale-[0.99] transition-transform"
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <AlertTriangle className="size-5 text-orange-500" />
+              <span className="text-sm font-bold text-orange-800">
+                {toFa(discrepancies.length)} اعلام کمبود/مغایرت انبار
+              </span>
+            </div>
+            <p className="text-xs text-orange-700 leading-6">
+              {discrepancies[0].materialName}
+              {discrepancies.length > 1 ? ` و ${toFa(discrepancies.length - 1)} مورد دیگر` : ''} — توسط انباردار اعلام شده؛ برای مشاهده و برطرف‌کردن لمس کنید.
+            </p>
+          </button>
+        </div>
+      ) : null}
 
       {/* CTAهای بزرگ — فقط برای نقش‌های ثبت‌کننده */}
       {canCreateEntry ? (

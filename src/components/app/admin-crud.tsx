@@ -18,7 +18,7 @@ import { Drawer } from 'vaul'
 export interface CrudField {
   key: string
   label: string
-  type: 'text' | 'number' | 'select' | 'switch' | 'workshop'
+  type: 'text' | 'number' | 'select' | 'switch' | 'workshop' | 'workshop-multi'
   required?: boolean
   options?: Array<{ value: string; label: string }>
   placeholder?: string
@@ -212,8 +212,16 @@ function CrudForm({
   onSave: (values: Record<string, unknown>) => void
   onCancel: () => void
 }) {
-  const [values, setValues] = useState<Record<string, unknown>>(initial)
+  // نرمال‌سازی ورودی ویرایش: اگر رکورد آرایهٔ workshops [{id,name}] داشت → به workshopIds تبدیل شود
+  const [values, setValues] = useState<Record<string, unknown>>(() => {
+    const src = { ...initial } as Record<string, unknown>
+    if (Array.isArray(src.workshops) && src.workshopIds === undefined) {
+      src.workshopIds = (src.workshops as Array<{ id?: string }>).map((w) => w.id).filter((x): x is string => !!x)
+    }
+    return src
+  })
   const [wsOpen, setWsOpen] = useState(false)
+  const [wsMultiOpen, setWsMultiOpen] = useState(false)
 
   const set = (key: string, v: unknown) => setValues((p) => ({ ...p, [key]: v }))
 
@@ -241,6 +249,19 @@ function CrudForm({
                       className="w-full rounded-xl border border-input bg-card px-4 py-2.5 text-sm text-right min-h-11"
                     >
                       {values[f.key] ? workshops.find((w) => w.id === values[f.key])?.name ?? '—' : 'انتخاب کارگاه…'}
+                    </button>
+                  ) : f.type === 'workshop-multi' ? (
+                    <button
+                      type="button"
+                      onClick={() => setWsMultiOpen(true)}
+                      className="w-full rounded-xl border border-input bg-card px-4 py-2.5 text-sm text-right min-h-11"
+                    >
+                      {(() => {
+                        const ids = Array.isArray(values[f.key]) ? (values[f.key] as string[]) : []
+                        if (ids.length === 0) return 'انتخاب کارگاه‌ها…'
+                        const names = ids.map((id) => workshops.find((w) => w.id === id)?.name ?? '—')
+                        return names.length <= 2 ? names.join('، ') : `${toFa(ids.length)} کارگاه انتخاب شده`
+                      })()}
                     </button>
                   ) : f.type === 'select' ? (
                     <select
@@ -286,6 +307,19 @@ function CrudForm({
         options={workshops.map((w) => ({ id: w.id, label: w.name }))}
         selected={[]}
         onConfirm={(ids) => set('workshopId', ids[0] ?? null)}
+      />
+      <SelectionSheet
+        open={wsMultiOpen}
+        onOpenChange={setWsMultiOpen}
+        title="انتخاب کارگاه‌ها (چندگانه)"
+        options={workshops.map((w) => ({ id: w.id, label: w.name }))}
+        selected={Array.isArray(values['workshopIds']) ? (values['workshopIds'] as string[]) : []}
+        multi
+        onConfirm={(ids) => {
+          set('workshopIds', ids)
+          // کارگاه اصلی برای سازگاری — اولین انتخاب
+          set('workshopId', ids[0] ?? null)
+        }}
       />
     </Drawer.Root>
   )

@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from 'react'
-import { Loader2, Package, ArrowDownToLine, ArrowUpFromLine, Plus, AlertTriangle, Minus } from 'lucide-react'
+import { Loader2, Package, ArrowDownToLine, ArrowUpFromLine, Plus, AlertTriangle, Minus, CheckCircle2, SlidersHorizontal } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,7 +9,7 @@ import { api, ClientApiError, type InventoryStockItem, type InventoryMovementIte
 import { useApp } from '@/store/app'
 import { ScreenHeader, EmptyState, ErrorState, ListSkeleton, SelectionSheet } from '@/components/app/shared'
 import { toFa, formatQty, formatRelative } from '@/lib/fa'
-import { INVENTORY_REASONS, INVENTORY_DIRECTIONS } from '@/lib/permissions'
+import { INVENTORY_REASONS, INVENTORY_DIRECTIONS, DISCREPANCY_KINDS } from '@/lib/permissions'
 import { cn } from '@/lib/utils'
 import { ERROR_MSG } from '@/components/app/messages'
 
@@ -17,8 +17,9 @@ function toEnDigits(s: string): string {
   return s.replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
 }
 
-type Tab = 'stocks' | 'movements'
-type SheetKind = 'workshop-out' | 'material-out' | 'workshop-in' | 'material-in' | null
+type Tab = 'stocks' | 'movements' | 'discrepancies'
+type SheetKind = 'workshop-out' | 'material-out' | 'workshop-in' | 'material-in' | 'project-out' | null
+type ManageKind = null | { stock: InventoryStockItem; mode: 'adjust' } | { stock: InventoryStockItem; mode: 'min' }
 
 interface StockDraft {
   workshopId: string
@@ -26,17 +27,34 @@ interface StockDraft {
   materialId: string | null
   unit: string
   quantity: string
+  projectId: string
   note: string
 }
 
-const emptyDraft: StockDraft = { workshopId: '', materialName: '', materialId: null, unit: '', quantity: '', note: '' }
+interface DiscrepancyItem {
+  id: string
+  materialName: string
+  unit: string
+  kind: string
+  status: string
+  workshopName: string
+  systemQty: number | null
+  actualQty: number | null
+  note: string | null
+  createdByName: string
+  createdAt: string
+}
+
+const emptyDraft: StockDraft = { workshopId: '', materialName: '', materialId: null, unit: '', quantity: '', projectId: '', note: '' }
 
 export default function Inventory() {
   const session = useApp((s) => s.session)
+  const role = session?.user.role
 
   const [tab, setTab] = useState<Tab>('stocks')
   const [stocks, setStocks] = useState<InventoryStockItem[] | null>(null)
   const [movements, setMovements] = useState<InventoryMovementItem[] | null>(null)
+  const [discrepancies, setDiscrepancies] = useState<DiscrepancyItem[] | null>(null)
   const [error, setError] = useState(false)
   const [md, setMd] = useState<MasterData | null>(null)
 
@@ -44,18 +62,24 @@ export default function Inventory() {
   const [draft, setDraft] = useState<StockDraft>(emptyDraft)
   const [sheet, setSheet] = useState<SheetKind>(null)
   const [saving, setSaving] = useState(false)
+  const [manage, setManage] = useState<ManageKind>(null)
+  const [manageQty, setManageQty] = useState('')
+  const [manageNote, setManageNote] = useState('')
+  const [manageSaving, setManageSaving] = useState(false)
 
   const canManage = (session?.permissions ?? []).includes('inventory.manage')
 
   const load = useCallback(async () => {
     setError(false)
     try {
-      const [s, m] = await Promise.all([
+      const [s, m, d] = await Promise.all([
         api.get<{ stocks: InventoryStockItem[] }>('/api/v1/inventory'),
         api.get<{ movements: InventoryMovementItem[] }>('/api/v1/inventory/movements?pageSize=30'),
+        api.get<{ discrepancies: DiscrepancyItem[] }>('/api/v1/inventory/discrepancies').catch(() => ({ discrepancies: [] as DiscrepancyItem[] })),
       ])
       setStocks(s.stocks)
       setMovements(m.movements)
+      setDiscrepancies(d.discrepancies)
     } catch {
       setError(true)
     }
@@ -84,6 +108,7 @@ export default function Inventory() {
         quantity: qty,
         direction,
         reason: direction === 'OUT' ? 'ISSUE' : 'RETURN',
+        projectId: draft.projectId || null,
         note: draft.note.trim() || null,
       })
       toast.success(direction === 'OUT' ? 'خروج از انبار ثبت شد.' : 'ورود به انبار ثبت شد.')
@@ -98,8 +123,52 @@ export default function Inventory() {
     }
   }
 
+  async function submitManage() {
+    if (!manage) return
+    setManageSaving(true)
+    try {
+      if (manage.mode === 'adjust') {
+        const qty = Number(toEnDigits(manageQty).replace(/[^\d.]/g, ''))
+        if (!(qty >= 0)) {
+          toast.error('مقدار معتبر وارد کنید.')
+          setManageSaving(false)
+          return
+        }
+        await api.patch(`/api/v1/inventory/stocks/${manage.stock.id}`, { quantity: qty, note: manageNote.trim() || null })
+        toast.success('موجودی به‌روزرسانی شد — گردش تعدیل ثبت شد.')
+      } else {
+        const min = manageQty.trim() === '' ? null : Number(toEnDigits(manageQty).replace(/[^\d.]/g, ''))
+        await api.patch(`/api/v1/inventory/stocks/${manage.stock.id}`, { minQuantity: min })
+        toast.success('حداقل موجودی ذخیره شد.')
+      }
+      setManage(null)
+      setManageQty('')
+      setManageNote('')
+      await load()
+    } catch (e) {
+      if (e instanceof ClientApiError) toast.error(e.message)
+      else toast.error(ERROR_MSG)
+    } finally {
+      setManageSaving(false)
+    }
+  }
+
+  async function resolveDiscrepancy(id: string) {
+    try {
+      await api.patch(`/api/v1/inventory/discrepancies/${id}`, { resolveNote: null })
+      toast.success('برطرف شد.')
+      await load()
+    } catch (e) {
+      if (e instanceof ClientApiError) toast.error(e.message)
+      else toast.error(ERROR_MSG)
+    }
+  }
+
   const workshopOptions = (md?.workshops ?? []).map((w) => ({ id: w.id, label: w.name, hint: w.code }))
   const materialOptions = (md?.materials ?? []).map((m) => ({ id: m.id, label: m.name, hint: m.defaultUnit ?? undefined }))
+  const projectOptions = (md?.projects ?? [])
+    .filter((p) => !draft.workshopId || p.workshopId === null || p.workshopId === draft.workshopId)
+    .map((p) => ({ id: p.id, label: p.name, hint: p.code }))
 
   function onMaterialSelected(ids: string[]) {
     const m = (md?.materials ?? []).find((x) => x.id === ids[0])
@@ -115,7 +184,7 @@ export default function Inventory() {
           canManage ? (
             <Button size="sm" className="h-9 gap-1.5" onClick={() => { setDraft({ ...emptyDraft, workshopId: md?.workshops[0]?.id ?? '' }); setIssueOpen(true) }}>
               <ArrowUpFromLine className="size-4" />
-              ثبت خروج
+              ثبت ورود / خروج
             </Button>
           ) : null
         }
@@ -123,11 +192,12 @@ export default function Inventory() {
 
       {/* تب‌ها */}
       <div className="px-4 pt-3">
-        <div className="grid grid-cols-2 gap-1 rounded-xl bg-secondary p-1">
+        <div className={cn('grid gap-1 rounded-xl bg-secondary p-1', canManage ? 'grid-cols-3' : 'grid-cols-2')}>
           {(
             [
               { key: 'stocks', label: 'موجودی' },
               { key: 'movements', label: 'گردش‌ها' },
+              ...(canManage ? [{ key: 'discrepancies' as const, label: 'اعلام‌ها' }] : []),
             ] as const
           ).map((t) => (
             <button
@@ -169,57 +239,115 @@ export default function Inventory() {
                   </div>
                   <div className="flex items-center justify-between gap-2 mt-1">
                     <span className="text-[11px] text-muted-foreground truncate">{s.workshopName}</span>
-                    {s.isLow ? (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-100 rounded-full px-2 py-0.5">
-                        <AlertTriangle className="size-3" />
-                        کمبود — حداقل {toFa(formatQty(s.minQuantity ?? 0))} {s.unit}
-                      </span>
-                    ) : s.minQuantity != null ? (
-                      <span className="text-[10px] text-muted-foreground">حداقل: {toFa(formatQty(s.minQuantity))} {s.unit}</span>
-                    ) : null}
+                    <div className="flex items-center gap-2">
+                      {s.isLow ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-100 rounded-full px-2 py-0.5">
+                          <AlertTriangle className="size-3" />
+                          کمبود — حداقل {toFa(formatQty(s.minQuantity ?? 0))} {s.unit}
+                        </span>
+                      ) : s.minQuantity != null ? (
+                        <span className="text-[10px] text-muted-foreground">حداقل: {toFa(formatQty(s.minQuantity))} {s.unit}</span>
+                      ) : null}
+                      {canManage ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setManage({ stock: s, mode: 'adjust' })
+                            setManageQty(String(s.quantity))
+                            setManageNote('')
+                          }}
+                          className="size-8 rounded-lg flex items-center justify-center text-accent hover:bg-secondary shrink-0"
+                          aria-label="مدیریت موجودی"
+                        >
+                          <SlidersHorizontal className="size-4" />
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
           )
-        ) : movements === null ? (
-          <ListSkeleton rows={5} />
-        ) : movements.length === 0 ? (
-          <EmptyState title="گردشی ثبت نشده است" icon={<ArrowDownToLine className="size-7" />} />
+        ) : tab === 'movements' ? (
+          movements === null ? (
+            <ListSkeleton rows={5} />
+          ) : movements.length === 0 ? (
+            <EmptyState title="گردشی ثبت نشده است" icon={<ArrowDownToLine className="size-7" />} />
+          ) : (
+            <div className="space-y-2">
+              {movements.map((m) => (
+                <div key={m.id} className="rounded-xl border border-border bg-card p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span
+                      className={cn(
+                        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold',
+                        m.direction === 'IN' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-orange-50 text-orange-700 border-orange-200'
+                      )}
+                    >
+                      {m.direction === 'IN' ? <ArrowDownToLine className="size-3" /> : <ArrowUpFromLine className="size-3" />}
+                      {INVENTORY_DIRECTIONS[m.direction]}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">{formatRelative(m.createdAt)}</span>
+                  </div>
+                  <p className="text-sm font-medium mt-1.5 truncate">
+                    {m.materialName} — <span className="numeric-input">{toFa(formatQty(m.quantity))} {m.unit}</span>
+                  </p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    {INVENTORY_REASONS[m.reason as keyof typeof INVENTORY_REASONS] ?? m.reason}
+                    {m.workshopName ? ` · ${m.workshopName}` : ''}
+                    {m.projectName ? ` · پروژه: ${m.projectName}` : ''}
+                    {m.purchaseRequestNumber ? ` · خرید شمارهٔ ${toFa(m.purchaseRequestNumber)}` : ''}
+                    {' · '}
+                    {m.createdByName}
+                  </p>
+                  {m.note ? <p className="text-[11px] text-muted-foreground mt-1">{m.note}</p> : null}
+                </div>
+              ))}
+            </div>
+          )
+        ) : discrepancies === null ? (
+          <ListSkeleton rows={4} />
+        ) : discrepancies.length === 0 ? (
+          <EmptyState title="اعلام کمبود/مغایرتی ثبت نشده است" icon={<AlertTriangle className="size-7" />} />
         ) : (
           <div className="space-y-2">
-            {movements.map((m) => (
-              <div key={m.id} className="rounded-xl border border-border bg-card p-3">
+            {discrepancies.map((d) => (
+              <div key={d.id} className={cn('rounded-xl border p-3.5', d.status === 'OPEN' ? 'border-orange-200 bg-orange-50/50' : 'border-border bg-card opacity-70')}>
                 <div className="flex items-center justify-between gap-2">
-                  <span
-                    className={cn(
-                      'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold',
-                      m.direction === 'IN' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-orange-50 text-orange-700 border-orange-200'
-                    )}
-                  >
-                    {m.direction === 'IN' ? <ArrowDownToLine className="size-3" /> : <ArrowUpFromLine className="size-3" />}
-                    {INVENTORY_DIRECTIONS[m.direction]}
+                  <span className="text-[11px] font-bold text-orange-700">
+                    {DISCREPANCY_KINDS[d.kind as keyof typeof DISCREPANCY_KINDS] ?? d.kind}
+                    {d.status === 'RESOLVED' ? ' — برطرف شد' : ''}
                   </span>
-                  <span className="text-[11px] text-muted-foreground">{formatRelative(m.createdAt)}</span>
+                  <span className="text-[10px] text-muted-foreground">{formatRelative(d.createdAt)}</span>
                 </div>
-                <p className="text-sm font-medium mt-1.5 truncate">
-                  {m.materialName} — <span className="numeric-input">{toFa(formatQty(m.quantity))} {m.unit}</span>
+                <p className="text-sm font-medium mt-1">
+                  {d.materialName}
+                  {d.systemQty != null && d.actualQty != null ? (
+                    <span className="text-xs text-muted-foreground font-normal">
+                      {' '}
+                      — دفتری {toFa(formatQty(d.systemQty))} / فیزیکی {toFa(formatQty(d.actualQty))} {d.unit}
+                    </span>
+                  ) : null}
                 </p>
-                <p className="text-[11px] text-muted-foreground mt-0.5">
-                  {INVENTORY_REASONS[m.reason as keyof typeof INVENTORY_REASONS] ?? m.reason}
-                  {m.workshopName ? ` · ${m.workshopName}` : ''}
-                  {m.purchaseRequestNumber ? ` · خرید شمارهٔ ${toFa(m.purchaseRequestNumber)}` : ''}
-                  {' · '}
-                  {m.createdByName}
-                </p>
-                {m.note ? <p className="text-[11px] text-muted-foreground mt-1">{m.note}</p> : null}
+                {d.note ? <p className="text-[11px] text-muted-foreground mt-1">{d.note}</p> : null}
+                <div className="flex items-center justify-between mt-2">
+                  <span className="text-[10px] text-muted-foreground">
+                    {d.workshopName} · {d.createdByName}
+                  </span>
+                  {d.status === 'OPEN' && role !== 'WAREHOUSE_KEEPER' ? (
+                    <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => void resolveDiscrepancy(d.id)}>
+                      <CheckCircle2 className="size-3.5" />
+                      برطرف شد
+                    </Button>
+                  ) : null}
+                </div>
               </div>
             ))}
           </div>
         )}
       </div>
 
-      {/* فرم ثبت خروج/ورود دستی */}
+      {/* فرم ثبت ورود/خروج دستی */}
       {issueOpen ? (
         <div className="fixed inset-0 z-50 flex items-end" onClick={() => setIssueOpen(false)}>
           <div className="absolute inset-0 bg-black/50" />
@@ -239,6 +367,12 @@ export default function Inventory() {
                   <span className="block text-sm font-medium truncate">{draft.materialName || 'انتخاب کنید'}</span>
                 </button>
               </div>
+              <button type="button" onClick={() => setSheet('project-out')} className="w-full rounded-xl border border-border bg-card p-3 text-right min-h-14">
+                <span className="block text-[11px] text-muted-foreground mb-1">پروژه (اختیاری)</span>
+                <span className="block text-sm font-medium truncate">
+                  {md?.projects.find((p) => p.id === draft.projectId)?.name ?? 'انتخاب کنید'}
+                </span>
+              </button>
               <div className="grid grid-cols-2 gap-2.5">
                 <Input
                   value={draft.quantity}
@@ -283,13 +417,73 @@ export default function Inventory() {
         </div>
       ) : null}
 
+      {/* شیت تعدیل موجودی / حداقل */}
+      {manage ? (
+        <div className="fixed inset-0 z-50 flex items-end" onClick={() => setManage(null)}>
+          <div className="absolute inset-0 bg-black/50" />
+          <div
+            className="relative w-full max-w-lg mx-auto rounded-t-2xl bg-card p-5 max-h-[92dvh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              <button
+                type="button"
+                onClick={() => setManage({ stock: manage.stock, mode: 'adjust' })}
+                className={cn('rounded-lg border py-2 text-xs font-medium', manage.mode === 'adjust' ? 'bg-accent text-accent-foreground border-accent' : 'bg-card border-border text-muted-foreground')}
+              >
+                تغییر موجودی
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setManage({ stock: manage.stock, mode: 'min' })
+                  setManageQty(manage.stock.minQuantity != null ? String(manage.stock.minQuantity) : '')
+                }}
+                className={cn('rounded-lg border py-2 text-xs font-medium', manage.mode === 'min' ? 'bg-accent text-accent-foreground border-accent' : 'bg-card border-border text-muted-foreground')}
+              >
+                حداقل موجودی
+              </button>
+            </div>
+            <p className="text-sm font-medium">{manage.stock.materialName}</p>
+            <p className="text-[11px] text-muted-foreground mb-3">
+              {manage.stock.workshopName} — موجودی فعلی: {toFa(formatQty(manage.stock.quantity))} {manage.stock.unit}
+            </p>
+            <Input
+              value={manageQty}
+              onChange={(e) => setManageQty(e.target.value)}
+              placeholder={manage.mode === 'adjust' ? 'موجودی واقعی (شمارش)' : 'حداقل موجودی (اختیاری)'}
+              className="h-11 numeric-input bg-secondary/60 mb-2"
+              inputMode="decimal"
+            />
+            {manage.mode === 'adjust' ? (
+              <Input
+                value={manageNote}
+                onChange={(e) => setManageNote(e.target.value)}
+                placeholder="دلیل تعدیل (اختیاری)"
+                className="h-11 bg-secondary/60"
+                maxLength={300}
+              />
+            ) : null}
+            <div className="grid grid-cols-2 gap-2.5 mt-4">
+              <Button variant="outline" onClick={() => setManage(null)} className="h-12 rounded-xl">
+                انصراف
+              </Button>
+              <Button onClick={() => void submitManage()} disabled={manageSaving} className="h-12 rounded-xl bg-accent hover:bg-accent/90 text-accent-foreground font-bold">
+                {manageSaving ? <Loader2 className="size-4 animate-spin" /> : null}
+                ذخیره
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <SelectionSheet
         open={sheet === 'workshop-out'}
         onOpenChange={(v) => setSheet(v ? 'workshop-out' : null)}
         title="انتخاب کارگاه"
         options={workshopOptions}
         selected={[draft.workshopId]}
-        onConfirm={(ids) => setDraft((d) => ({ ...d, workshopId: ids[0] ?? '' }))}
+        onConfirm={(ids) => setDraft((d) => ({ ...d, workshopId: ids[0] ?? '', projectId: '' }))}
       />
       <SelectionSheet
         open={sheet === 'material-out'}
@@ -298,6 +492,14 @@ export default function Inventory() {
         options={materialOptions}
         selected={draft.materialId ? [draft.materialId] : []}
         onConfirm={onMaterialSelected}
+      />
+      <SelectionSheet
+        open={sheet === 'project-out'}
+        onOpenChange={(v) => setSheet(v ? 'project-out' : null)}
+        title="انتخاب پروژه"
+        options={projectOptions}
+        selected={draft.projectId ? [draft.projectId] : []}
+        onConfirm={(ids) => setDraft((d) => ({ ...d, projectId: ids[0] ?? '' }))}
       />
     </div>
   )

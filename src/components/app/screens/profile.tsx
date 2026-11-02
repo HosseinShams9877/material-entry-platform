@@ -47,10 +47,14 @@ export default function ProfileScreen() {
 
   const perms = session.permissions ?? []
 
-  menuItems.push(
-    { label: 'وظایف روزانه', icon: <ListTodo className="size-5" />, onClick: () => navigate('daily-tasks') },
-    { label: 'گزارش‌های روزانه', icon: <FileBarChart2 className="size-5" />, onClick: () => navigate('daily-reports') }
-  )
+  menuItems.push({ label: 'وظایف روزانه', icon: <ListTodo className="size-5" />, onClick: () => navigate('daily-tasks') })
+  // گزارش‌های روزانه فقط برای دارای مجوز report.view (انباردار این مجوز را ندارد)
+  if (perms.includes('report.view')) {
+    menuItems.push({ label: 'گزارش‌های روزانه', icon: <FileBarChart2 className="size-5" />, onClick: () => navigate('daily-reports') })
+  }
+  if (perms.includes('reports.view')) {
+    menuItems.push({ label: 'ثبت‌های ورود مصالح', icon: <ClipboardList className="size-5" />, onClick: () => navigate('entry-history') })
+  }
 
   if (perms.includes('statement.view')) {
     menuItems.push({ label: 'صورت وضعیت‌ها', icon: <FileSignature className="size-5" />, onClick: () => navigate('statements') })
@@ -80,13 +84,12 @@ export default function ProfileScreen() {
     )
   }
   if (isManager || isAdmin) {
+    menuItems.push({ label: 'گزارش‌ها', icon: <FileBarChart className="size-5" />, onClick: () => navigate('reports') })
+  }
+  if (isManager || isAdmin || role === 'WAREHOUSE_KEEPER' || isSupervisor) {
     menuItems.push(
-      { label: 'گزارش‌ها', icon: <FileBarChart className="size-5" />, onClick: () => navigate('reports') },
       { label: 'حسابرسی', icon: <ClipboardList className="size-5" />, onClick: () => navigate('audit-logs') }
     )
-  }
-  if (isSupervisor) {
-    menuItems.push({ label: 'حسابرسی عملیات من', icon: <ClipboardList className="size-5" />, onClick: () => navigate('audit-logs') })
   }
 
   return (

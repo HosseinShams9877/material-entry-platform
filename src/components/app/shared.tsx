@@ -318,7 +318,7 @@ function SelectionSheetInner({
 
 // ─────────────────────────── Bottom Navigation ───────────────────────────
 
-import { Home, ListChecks, Bell, MoreHorizontal, PenLine, ClipboardCheck, LayoutDashboard, ListTodo, CalendarCheck } from 'lucide-react'
+import { Home, ListChecks, Bell, MoreHorizontal, PenLine, ClipboardCheck, LayoutDashboard, ListTodo, CalendarCheck, Warehouse, Package } from 'lucide-react'
 
 const NAV_ITEMS_SUPERVISOR = [
   { name: 'supervisor-home', label: 'خانه', icon: Home },
@@ -346,11 +346,28 @@ const NAV_ITEMS_WORKER = [
   { name: 'profile', label: 'بیشتر', icon: MoreHorizontal },
 ] as const
 
+/** ناوبری اختصاصی انباردار — پنل جداگانه انبار: خانهٔ انبار، ثبت‌ها، انبار، اعلان‌ها، بیشتر */
+const NAV_ITEMS_WAREHOUSE = [
+  { name: 'warehouse-home', label: 'انبار', icon: Warehouse },
+  { name: 'entry-history', label: 'ثبت‌ها', icon: ListChecks },
+  { name: 'inventory', label: 'موجودی', icon: Package },
+  { name: 'daily-tasks', label: 'وظایف', icon: ListTodo },
+  { name: 'notifications', label: 'اعلان‌ها', icon: Bell },
+  { name: 'profile', label: 'بیشتر', icon: MoreHorizontal },
+] as const
+
 export function BottomNav({ active }: { active: string }) {
   const navigate = useApp((s) => s.navigate)
   const role = useApp((s) => s.session?.user.role)
   const unread = useApp((s) => s.unreadCount)
-  const items = role === 'PROJECT_MANAGER' ? NAV_ITEMS_MANAGER : role === 'FIELD_WORKER' ? NAV_ITEMS_WORKER : NAV_ITEMS_SUPERVISOR
+  const items =
+    role === 'PROJECT_MANAGER'
+      ? NAV_ITEMS_MANAGER
+      : role === 'FIELD_WORKER'
+        ? NAV_ITEMS_WORKER
+        : role === 'WAREHOUSE_KEEPER'
+          ? NAV_ITEMS_WAREHOUSE
+          : NAV_ITEMS_SUPERVISOR
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 bg-card border-t border-border safe-bottom" aria-label="ناوبری اصلی">

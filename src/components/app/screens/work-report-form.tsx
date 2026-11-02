@@ -98,6 +98,10 @@ export default function WorkReportForm() {
 
   async function save() {
     const name = workerName.trim()
+    if (isFieldWorker && !selfName) {
+      toast.error('حساب شما به پروفایل کارگر متصل نیست — با مدیر سیستم تماس بگیرید.')
+      return
+    }
     if (!workshopId) {
       toast.error('کارگاه را انتخاب کنید.')
       return
@@ -170,6 +174,16 @@ export default function WorkReportForm() {
       />
 
       <div className="p-4 space-y-4">
+        {/* حساب متصل به پروفایل کارگر نیست — راهنمای رفع مشکل */}
+        {isFieldWorker && !selfName ? (
+          <div className="rounded-xl border border-amber-300 bg-amber-50 p-3.5 text-right">
+            <p className="text-xs font-bold text-amber-800 mb-1">حساب شما به پروفایل کارگر متصل نیست</p>
+            <p className="text-[11px] text-amber-700 leading-6">
+              تا زمانی که مدیر، حساب شما را از پنل مدیریت کاربران به پروفایل کارگر متصل کند، ثبت گزارش کار امکان‌پذیر نیست.
+              لطفاً از طریق سرپرست کارگاه پیگیری کنید.
+            </p>
+          </div>
+        ) : null}
         <div className="grid grid-cols-2 gap-2.5">
           {isFieldWorker ? (
             <div className="rounded-xl border border-border bg-secondary/40 p-3 min-h-16">

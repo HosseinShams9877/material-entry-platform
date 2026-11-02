@@ -28,20 +28,32 @@ export const GET = apiHandler(async ({ user }) => {
       select: { id: true, name: true, code: true, workshopId: true },
       orderBy: { name: 'asc' },
     }),
-    db.material.findMany({ where: { isActive: true, ...mdFilter }, select: { id: true, name: true, category: true, defaultUnit: true }, orderBy: { name: 'asc' } }),
-    db.supplier.findMany({ where: { isActive: true, ...mdFilter }, select: { id: true, name: true, phone: true }, orderBy: { name: 'asc' } }),
+    db.material.findMany({ where: { isActive: true, ...mdFilter }, select: { id: true, name: true, category: true, categoryId: true, defaultUnit: true }, orderBy: { name: 'asc' } }),
+    // تأمین‌کنندگان چند-کارگاهی — کارگاه اصلی یا دسترسی چند-کارگاهی
+    db.supplier.findMany({
+      where: {
+        isActive: true,
+        ...(scope.isGlobal
+          ? {}
+          : scope.workshopIds.length
+            ? { OR: [{ workshopId: { in: scope.workshopIds } }, { workshopAccess: { some: { workshopId: { in: scope.workshopIds } } } }] }
+            : { id: { in: ['__no_access__'] } }),
+      },
+      select: { id: true, name: true, phone: true },
+      orderBy: { name: 'asc' },
+    }),
     db.worker.findMany({ where: { isActive: true, ...mdFilter }, select: { id: true, fullName: true, kind: true }, orderBy: { fullName: 'asc' } }),
     db.materialUnit.findMany({ select: { id: true, title: true }, orderBy: { title: 'asc' } }),
     // سرپرستانِ در دسترس مدیر کارگاه — برای ارسال وظیفهٔ روزانه (Scope-aware)
     db.user.findMany({
       where: {
         isActive: true,
-        role: 'SITE_SUPERVISOR',
+        role: { in: ['SITE_SUPERVISOR', 'WAREHOUSE_KEEPER'] },
         ...(scope.isGlobal
           ? {}
           : { OR: [{ workshopId: { in: scope.workshopIds.length ? scope.workshopIds : ['__none__'] } }, { userWorkshops: { some: { workshopId: { in: scope.workshopIds } } } }] }),
       },
-      select: { id: true, fullName: true, workshopId: true },
+      select: { id: true, fullName: true, workshopId: true, role: true },
       orderBy: { fullName: 'asc' },
     }),
   ])

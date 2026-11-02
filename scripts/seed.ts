@@ -55,7 +55,7 @@ async function main() {
     INSPECTOR: 'SITE_SUPERVISOR',
     VIEWER: 'FIELD_WORKER',
     WORKSHOP_SUPERVISOR: 'SITE_SUPERVISOR',
-    WAREHOUSE_MANAGER: 'SITE_SUPERVISOR',
+    WAREHOUSE_MANAGER: 'WAREHOUSE_KEEPER',
   }
   for (const [from, to] of Object.entries(ROLE_MIGRATION)) {
     await db.user.updateMany({ where: { role: from }, data: { role: to } })
@@ -71,6 +71,12 @@ async function main() {
   const units = ['کیسه', 'تن', 'عدد', 'متر', 'مترمربع', 'مترمکعب', 'لیتر', 'بسته', 'پالت', 'دستگاه', 'ماشین', 'شاخه', 'رول']
   for (const title of units) {
     await db.materialUnit.upsert({ where: { title }, update: {}, create: { title } })
+  }
+
+  // ── دسته‌بندی‌های مصالح — قابل مدیریت از پنل (ایجاد/ویرایش/حذف) ──
+  const defaultCategories = ['سیمان', 'آهن‌آلات', 'بنایی', 'شن و ماسه', 'عایق', 'لوله و اتصالات', 'سیم و کابل', 'رنگ', 'کاشی و سرامیک', 'سایر']
+  for (const name of defaultCategories) {
+    await db.materialCategory.upsert({ where: { name }, update: {}, create: { name, isActive: true } })
   }
 
   // ── Workshops ──
@@ -135,14 +141,14 @@ async function main() {
   await db.worker.upsert({ where: { id: 'w-mahdi' }, update: {}, create: { id: 'w-mahdi', fullName: 'مهدی', kind: 'FORKLIFT', workshopId: whA.id } })
 
   // ── Users ──
-  // نقش‌ها: فقط ۳ نقش — PROJECT_MANAGER (مدیر پروژه‌ها) / SITE_SUPERVISOR (سرپرست کارگاه) / FIELD_WORKER (کارگر)
-  // سرپرست می‌تواند یک یا چند کارگاه را سرپرستی کند (از طریق دسترسی چند-کارگاهی در مدیریت کاربران)
+  // نقش‌ها: PROJECT_MANAGER (مدیر پروژه‌ها) / WAREHOUSE_KEEPER (انباردار) / SITE_SUPERVISOR (سرپرست کارگاه) / FIELD_WORKER (کارگر)
+  // انباردار پنل جداگانه دارد: تأیید ورود/خروج انبار، ثبت گردش، اعلام کمبود/مغایرت — فقط کارگاه‌های خودش
   const usersData = [
     { username: 'admin', fullName: 'مدیر پروژه‌ها', role: 'PROJECT_MANAGER', workshopId: null as string | null, active: true },
     { username: 'manager.sa', fullName: 'مهندس کریمی (مدیر پروژه‌ها)', role: 'PROJECT_MANAGER', workshopId: whA.id, active: true },
     { username: 'supervisor.sa', fullName: 'اکبر حسینی (سرپرست سعادت‌آباد)', role: 'SITE_SUPERVISOR', workshopId: whA.id, active: true },
     { username: 'supervisor.da', fullName: 'قادر رحیمی (سرپرست دروس)', role: 'SITE_SUPERVISOR', workshopId: whB.id, active: true },
-    { username: 'warehouse.sa', fullName: 'رضا محمدی (سرپرست انبار سعادت‌آباد)', role: 'SITE_SUPERVISOR', workshopId: whA.id, active: true },
+    { username: 'warehouse.sa', fullName: 'رضا محمدی (انباردار سعادت‌آباد)', role: 'WAREHOUSE_KEEPER', workshopId: whA.id, active: true },
     { username: 'worker.sa', fullName: 'علی (کارگر سعادت‌آباد)', role: 'FIELD_WORKER', workshopId: whA.id, active: true, workerId: 'w-ali' },
   ]
   const created: Record<string, { id: string; role: string }> = {}
@@ -275,7 +281,7 @@ async function main() {
     console.log('   sample entries:', e1.entryNumber, e2.entryNumber)
   }
 
-  console.log('✅ Seed complete. حساب‌های آزمایشی (مدل ۳ نقشی): admin / manager.sa (مدیر پروژه‌ها) / supervisor.sa / supervisor.da / warehouse.sa (سرپرست کارگاه) / worker.sa (کارگر) — گذرواژه همه: 123456')
+  console.log('✅ Seed complete. حساب‌های آزمایشی: admin / manager.sa (مدیر پروژه‌ها) / supervisor.sa / supervisor.da (سرپرست کارگاه) / warehouse.sa (انباردار) / worker.sa (کارگر) — گذرواژه همه: 123456')
 }
 
 main()

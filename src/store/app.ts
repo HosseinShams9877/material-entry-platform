@@ -9,6 +9,7 @@ export type ScreenName =
   | 'login'
   | 'supervisor-home'
   | 'worker-home'
+  | 'warehouse-home'
   | 'manager-dashboard'
   | 'admin-panel'
   | 'entry-type-select'

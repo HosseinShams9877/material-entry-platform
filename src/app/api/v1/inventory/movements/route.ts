@@ -24,6 +24,8 @@ export const GET = apiHandler(
     if (workshopId) and.push({ workshopId })
     if (direction === 'IN' || direction === 'OUT') and.push({ direction })
     if (q) and.push({ materialName: { contains: q } })
+    const projectId = url.searchParams.get('projectId')
+    if (projectId) and.push({ projectId })
 
     const where: Prisma.InventoryMovementWhereInput = { AND: and }
 
@@ -35,6 +37,7 @@ export const GET = apiHandler(
           workshop: { select: { name: true } },
           createdBy: { select: { fullName: true } },
           purchaseRequest: { select: { id: true, number: true } },
+          project: { select: { id: true, name: true } },
         },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * pageSize,
@@ -55,6 +58,8 @@ export const GET = apiHandler(
         note: m.note,
         purchaseRequestId: m.purchaseRequestId,
         purchaseRequestNumber: m.purchaseRequest?.number ?? null,
+        projectId: m.projectId,
+        projectName: m.project?.name ?? null,
         createdByName: m.createdBy.fullName,
         createdAt: m.createdAt.toISOString(),
       })),
@@ -70,11 +75,22 @@ export const GET = apiHandler(
 
 export const POST = apiHandler(
   async ({ body, user, ip, userAgent }) => {
-    const { workshopId, materialId, materialName, unit, quantity, direction, reason, note } = body
+    const { workshopId, materialId, materialName, unit, quantity, direction, reason, note, projectId } = body
     const scope = await getUserScope(user)
 
     if (!scope.isGlobal && !scope.workshopIds.includes(workshopId)) {
       throw new ApiError(403, 'FORBIDDEN', 'به این کارگاه دسترسی ندارید.')
+    }
+
+    // پروژهٔ مرتبط — باید به همان کارگاه تعلق داشته باشد
+    let validProjectId: string | null = null
+    if (projectId) {
+      const project = await db.project.findUnique({ where: { id: projectId }, select: { workshopId: true, isActive: true } })
+      if (!project || !project.isActive) throw new ApiError(422, 'INVALID_PROJECT', 'پروژهٔ انتخاب‌شده معتبر نیست.')
+      if (project.workshopId && project.workshopId !== workshopId) {
+        throw new ApiError(422, 'INVALID_PROJECT', 'پروژهٔ انتخاب‌شده به این کارگاه تعلق ندارد.')
+      }
+      validProjectId = projectId
     }
 
     const result = await db.$transaction(async (tx) => {
@@ -105,6 +121,7 @@ export const POST = apiHandler(
             quantity,
             direction: 'OUT',
             reason,
+            projectId: validProjectId,
             note: note ?? null,
             createdById: user.id,
           },
@@ -128,6 +145,7 @@ export const POST = apiHandler(
           quantity,
           direction: 'IN',
           reason,
+          projectId: validProjectId,
           note: note ?? null,
           createdById: user.id,
         },
@@ -171,7 +189,7 @@ export const POST = apiHandler(
         const warehouses = await db.user.findMany({
           where: {
             isActive: true,
-            role: 'SITE_SUPERVISOR',
+            role: { in: ['SITE_SUPERVISOR', 'WAREHOUSE_KEEPER'] },
             OR: [{ workshopId }, { userWorkshops: { some: { workshopId } } }],
           },
           select: { id: true },
