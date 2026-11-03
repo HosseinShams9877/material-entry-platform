@@ -1,9 +1,12 @@
 "use client"
 
 import { useCallback, useEffect, useState } from 'react'
-import { api, type PurchaseRequestListItem } from '@/lib/client'
-import { ScreenHeader, ListSkeleton, EmptyState, ErrorState } from '@/components/app/shared'
-import { formatRelative, toFa, formatQty } from '@/lib/fa'
+import { CalendarDays } from 'lucide-react'
+import { Drawer } from 'vaul'
+import { api, type PurchaseRequestListItem, type MasterDataWithSupervisors } from '@/lib/client'
+import { ScreenHeader, ListSkeleton, EmptyState, ErrorState, SelectionSheet } from '@/components/app/shared'
+import { JalaliCalendarSheet } from '@/components/app/jalali-calendar-sheet'
+import { formatRelative, toFa, formatQty, formatJalaliFromISO } from '@/lib/fa'
 import { PURCHASE_STATUS_STYLES } from '@/lib/permissions'
 import { Button } from '@/components/ui/button'
 import { useApp } from '@/store/app'
@@ -18,6 +21,8 @@ const STATUS_FILTERS = [
   { key: 'RECEIVED', label: 'دریافت‌شده' },
   { key: 'REJECTED', label: 'رد شده' },
 ]
+
+const ALL = '__all__'
 
 export function PurchaseStatusBadge({ status, size = 'sm' }: { status: string; size?: 'sm' | 'md' }) {
   const s = PURCHASE_STATUS_STYLES[status]
@@ -37,33 +42,68 @@ export default function PurchaseRequests() {
   const [totalPages, setTotalPages] = useState(1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  // فیلترهای اختصاصی این صفحه — پروژه، بازهٔ تاریخ و درخواست‌کننده
+  const [projects, setProjects] = useState<Array<{ id: string; name: string; code: string | null }>>([])
+  const [requesters, setRequesters] = useState<Array<{ id: string; fullName: string }>>([])
+  const [projectId, setProjectId] = useState<string>(ALL)
+  const [requestedById, setRequestedById] = useState<string>(ALL)
+  const [from, setFrom] = useState<string | null>(null)
+  const [to, setTo] = useState<string | null>(null)
+  const [sheet, setSheet] = useState<null | 'project' | 'requester'>(null)
+  const [dateOpen, setDateOpen] = useState(false)
+  const [dateSheet, setDateSheet] = useState<null | 'from' | 'to'>(null)
   const navigate = useApp((s) => s.navigate)
 
-  const load = useCallback(async (p: number, st: string) => {
-    setLoading(true)
-    setError(false)
-    try {
-      const res = await api.get<{ requests: PurchaseRequestListItem[]; pagination: { totalPages: number } }>(
-        `/api/v1/purchase-requests?page=${p}&pageSize=15${st !== 'ALL' ? `&status=${st}` : ''}`
-      )
-      setItems(res.requests)
-      setTotalPages(res.pagination.totalPages)
-    } catch {
-      setError(true)
-    } finally {
-      setLoading(false)
-    }
+  // گزینه‌های فیلتر از Master Data (Scope-aware — فقط پروژه‌ها/افراد قابل‌دسترسی کاربر)
+  useEffect(() => {
+    api
+      .get<MasterDataWithSupervisors>('/api/v1/master')
+      .then((m) => {
+        setProjects(m.projects)
+        setRequesters(m.supervisors ?? [])
+      })
+      .catch(() => undefined)
   }, [])
 
+  const load = useCallback(
+    async (p: number, st: string, pid: string, rid: string, f: string | null, t: string | null) => {
+      setLoading(true)
+      setError(false)
+      try {
+        const qs = `/api/v1/purchase-requests?page=${p}&pageSize=15${st !== 'ALL' ? `&status=${st}` : ''}${
+          pid !== ALL ? `&projectId=${pid}` : ''
+        }${rid !== ALL ? `&requestedById=${rid}` : ''}${f ? `&from=${f}` : ''}${t ? `&to=${t}` : ''}`
+        const res = await api.get<{ requests: PurchaseRequestListItem[]; pagination: { totalPages: number } }>(qs)
+        setItems(res.requests)
+        setTotalPages(res.pagination.totalPages)
+      } catch {
+        setError(true)
+      } finally {
+        setLoading(false)
+      }
+    },
+    []
+  )
+
   useEffect(() => {
-    void load(page, status)
-  }, [page, status, load])
+    void load(page, status, projectId, requestedById, from, to)
+  }, [page, status, projectId, requestedById, from, to, load])
 
   const applyFilter = (st: string) => {
     setStatus(st)
     setPage(1)
-    void load(1, st)
   }
+
+  const clearDateFilter = () => {
+    setFrom(null)
+    setTo(null)
+    setDateOpen(false)
+    setPage(1)
+  }
+
+  const hasDateFilter = !!from || !!to
+  const projectName = projects.find((p) => p.id === projectId)?.name
+  const requesterName = requesters.find((r) => r.id === requestedById)?.fullName
 
   return (
     <div className="max-w-lg mx-auto min-h-dvh">
@@ -85,10 +125,49 @@ export default function PurchaseRequests() {
         ))}
       </div>
 
+      {/* فیلترهای پروژه / درخواست‌کننده / تاریخ — مخصوص این صفحه */}
+      <div className="px-4 pb-3 flex gap-2 overflow-x-auto no-scrollbar">
+        <button
+          type="button"
+          onClick={() => setSheet('project')}
+          className={`shrink-0 rounded-full border px-3.5 py-1.5 text-xs font-medium min-h-8 transition-colors ${
+            projectId !== ALL ? 'bg-accent text-accent-foreground border-accent' : 'bg-card border-border text-muted-foreground'
+          }`}
+        >
+          {projectName ?? 'پروژه'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setSheet('requester')}
+          className={`shrink-0 rounded-full border px-3.5 py-1.5 text-xs font-medium min-h-8 transition-colors ${
+            requestedById !== ALL ? 'bg-accent text-accent-foreground border-accent' : 'bg-card border-border text-muted-foreground'
+          }`}
+        >
+          {requesterName ?? 'درخواست‌کننده'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setDateOpen(true)}
+          className={`shrink-0 rounded-full border px-3.5 py-1.5 text-xs font-medium min-h-8 transition-colors inline-flex items-center gap-1.5 ${
+            hasDateFilter ? 'bg-accent text-accent-foreground border-accent' : 'bg-card border-border text-muted-foreground'
+          }`}
+          aria-label="فیلتر تاریخ"
+        >
+          <CalendarDays className="size-3.5" />
+          {hasDateFilter
+            ? from && to
+              ? `${formatJalaliFromISO(from)} تا ${formatJalaliFromISO(to)}`
+              : from
+                ? `از ${formatJalaliFromISO(from)}`
+                : `تا ${formatJalaliFromISO(to)}`
+            : 'تاریخ'}
+        </button>
+      </div>
+
       {loading && items.length === 0 ? (
         <ListSkeleton rows={5} />
       ) : error && items.length === 0 ? (
-        <ErrorState message={ERROR_MSG} onRetry={() => void load(page, status)} />
+        <ErrorState message={ERROR_MSG} onRetry={() => void load(page, status, projectId, requestedById, from, to)} />
       ) : items.length === 0 ? (
         <EmptyState title="درخواستی پیدا نشد" hint="با این فیلتر هیچ درخواست خریدی ثبت نشده است." />
       ) : (
@@ -140,6 +219,97 @@ export default function PurchaseRequests() {
           ) : null}
         </div>
       )}
+
+      {/* انتخاب پروژه / درخواست‌کننده — استفاده از SelectionSheet مشابه فرم ثبت */}
+      <SelectionSheet
+        open={sheet === 'project'}
+        onOpenChange={(o) => !o && setSheet(null)}
+        title="فیلتر بر اساس پروژه"
+        selected={[]}
+        options={[{ id: ALL, label: 'همه پروژه‌ها' }, ...projects.map((p) => ({ id: p.id, label: p.name, hint: p.code ? `کد ${p.code}` : undefined }))]}
+        onConfirm={(ids) => {
+          setProjectId(ids[0] ?? ALL)
+          setPage(1)
+        }}
+      />
+      <SelectionSheet
+        open={sheet === 'requester'}
+        onOpenChange={(o) => !o && setSheet(null)}
+        title="فیلتر بر اساس درخواست‌کننده"
+        selected={[]}
+        options={[{ id: ALL, label: 'همه درخواست‌کنندگان' }, ...requesters.map((r) => ({ id: r.id, label: r.fullName }))]}
+        onConfirm={(ids) => {
+          setRequestedById(ids[0] ?? ALL)
+          setPage(1)
+        }}
+      />
+
+      {/* شیت فیلتر تاریخ — مشابه صفحهٔ ثبت‌های ورود */}
+      <Drawer.Root open={dateOpen} onOpenChange={setDateOpen}>
+        <Drawer.Portal>
+          <Drawer.Overlay className="fixed inset-0 bg-black/40 z-50" />
+          <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 rounded-t-2xl bg-card outline-none">
+            <Drawer.Handle className="mx-auto mt-3 h-1.5 w-12 rounded-full bg-zinc-300" />
+            <Drawer.Title className="font-semibold px-5 pt-3">فیلتر بازهٔ تاریخ</Drawer.Title>
+            <p className="text-xs text-muted-foreground px-5 pb-3">تقویم شمسی — بازهٔ ثبت درخواست خرید را انتخاب کنید</p>
+
+            <div className="px-4 space-y-2 pb-2">
+              <button
+                type="button"
+                onClick={() => setDateSheet('from')}
+                className="w-full flex items-center justify-between rounded-xl border border-border bg-secondary/50 px-4 py-3 min-h-12 text-right"
+              >
+                <span className="text-xs text-muted-foreground">از تاریخ</span>
+                <span className="text-sm font-medium flex items-center gap-2">
+                  {from ? formatJalaliFromISO(from) : <span className="text-muted-foreground">انتخاب…</span>}
+                  <CalendarDays className="size-4 text-accent" />
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setDateSheet('to')}
+                className="w-full flex items-center justify-between rounded-xl border border-border bg-secondary/50 px-4 py-3 min-h-12 text-right"
+              >
+                <span className="text-xs text-muted-foreground">تا تاریخ</span>
+                <span className="text-sm font-medium flex items-center gap-2">
+                  {to ? formatJalaliFromISO(to) : <span className="text-muted-foreground">انتخاب…</span>}
+                  <CalendarDays className="size-4 text-accent" />
+                </span>
+              </button>
+              {from && to && from > to ? (
+                <p className="text-xs text-red-600">«از تاریخ» باید قبل یا هم‌روزِ «تا تاریخ» باشد.</p>
+              ) : null}
+            </div>
+
+            <div className="safe-top px-5 pb-3 pt-2 border-t border-border flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={clearDateFilter}>
+                پاک کردن
+              </Button>
+              <Button className="flex-1" onClick={() => setDateOpen(false)}>
+                اعمال فیلتر
+              </Button>
+            </div>
+          </Drawer.Content>
+        </Drawer.Portal>
+      </Drawer.Root>
+
+      {/* پاپ‌آپ تقویم شمسی */}
+      <JalaliCalendarSheet
+        open={dateSheet === 'from'}
+        onOpenChange={(o) => !o && setDateSheet(null)}
+        value={from}
+        onSelect={(iso) => setFrom(iso)}
+        title="از تاریخ"
+        disableFuture
+      />
+      <JalaliCalendarSheet
+        open={dateSheet === 'to'}
+        onOpenChange={(o) => !o && setDateSheet(null)}
+        value={to}
+        onSelect={(iso) => setTo(iso)}
+        title="تا تاریخ"
+        disableFuture
+      />
     </div>
   )
 }

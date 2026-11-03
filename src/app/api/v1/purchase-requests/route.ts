@@ -19,6 +19,9 @@ export const GET = apiHandler(
     const status = url.searchParams.get('status')
     const workshopId = url.searchParams.get('workshopId')
     const projectId = url.searchParams.get('projectId')
+    const requestedById = url.searchParams.get('requestedById')
+    const from = url.searchParams.get('from') ?? ''
+    const to = url.searchParams.get('to') ?? ''
     const q = url.searchParams.get('q')?.trim()
 
     const and: Prisma.PurchaseRequestWhereInput[] = [workshopOrProjectScopeFilter(scope) as Prisma.PurchaseRequestWhereInput]
@@ -29,7 +32,17 @@ export const GET = apiHandler(
     }
     if (workshopId) and.push({ workshopId })
     if (projectId) and.push({ projectId })
+    if (requestedById) and.push({ requestedById })
     if (q) and.push({ items: { some: { materialName: { contains: q } } } })
+    // فیلتر بازهٔ تاریخ ثبت درخواست — مطابق material-entries
+    if (/^\d{4}-\d{2}-\d{2}$/.test(from) || /^\d{4}-\d{2}-\d{2}$/.test(to)) {
+      and.push({
+        createdAt: {
+          ...( /^\d{4}-\d{2}-\d{2}$/.test(from) ? { gte: new Date(`${from}T00:00:00.000Z`) } : {}),
+          ...( /^\d{4}-\d{2}-\d{2}$/.test(to) ? { lte: new Date(`${to}T23:59:59.999Z`) } : {}),
+        },
+      })
+    }
 
     const where: Prisma.PurchaseRequestWhereInput = { AND: and }
 

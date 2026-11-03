@@ -8,9 +8,10 @@ import { ScreenHeader, ListSkeleton, ErrorState, EmptyState } from '@/components
 import { ENTRY_DIRECTIONS, type EntryDirectionKey } from '@/lib/permissions'
 import { ERROR_MSG } from '@/components/app/messages'
 
-/** گاز اول جریان یکپارچهٔ ثبت ورود/خروج (نیازمند ۴ و ۷):
- *  ابتدا جهت و پروژه انتخاب می‌شود، سپس نوع و فرم.
- *  مصالات باید به انبار کارگاه پروژهٔ انتخاب‌شده تعلق داشته باشند —
+/** گاز اول جریان یکپارچهٔ ثبت ورود/خروج:
+ *  ابتدا جهت و پروژه انتخاب می‌شود و سپس کاربر مستقیم وارد همان فرم
+ *  یک‌صفحه‌ای ثبت می‌شود که ناظر امروز از آن استفاده می‌کند (manual-entry).
+ *  مصالح باید به انبار کارگاه پروژهٔ انتخاب‌شده تعلق داشته باشند —
  *  بدون پروژهٔ فعال اجازهٔ ثبت داده نمی‌شود. */
 export default function EntryProjectSelect({ params }: { params?: Record<string, unknown> }) {
   const navigate = useApp((s) => s.navigate)
@@ -59,7 +60,9 @@ export default function EntryProjectSelect({ params }: { params?: Record<string,
   const pick = (projectId: string) => {
     const p = projects.find((x) => x.id === projectId)
     if (!p) return
-    navigate('entry-type-select', { direction, projectId: p.id, projectName: p.name })
+    // ورود مستقیم به همان فرم یک‌صفحه‌ای ثبت که ناظر استفاده می‌کند (manual-entry / EntryDraftForm) —
+    // پروژه قفل‌شده است و انتخاب مصالح در همان صفحه انجام می‌شود.
+    navigate('manual-entry', { direction, projectId: p.id, projectName: p.name })
   }
 
   return (

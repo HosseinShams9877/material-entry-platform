@@ -12,7 +12,6 @@ export type ScreenName =
   | 'warehouse-home'
   | 'manager-dashboard'
   | 'admin-panel'
-  | 'entry-type-select'
   | 'entry-project-select'
   | 'manual-entry'
   | 'entry-history'

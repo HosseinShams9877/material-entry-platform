@@ -8,7 +8,6 @@ import LoginScreen from '@/components/app/screens/login'
 import SupervisorHome from '@/components/app/screens/supervisor-home'
 import WorkerHome from '@/components/app/screens/worker-home'
 import WarehouseHome from '@/components/app/screens/warehouse-home'
-import EntryTypeSelect from '@/components/app/screens/entry-type-select'
 import EntryProjectSelect from '@/components/app/screens/entry-project-select'
 import ManualEntry from '@/components/app/screens/manual-entry'
 import EntryHistory from '@/components/app/screens/entry-history'
@@ -68,8 +67,6 @@ function ScreenRenderer({ name, params }: { name: string; params?: Record<string
       return <WarehouseHome />
     case 'manager-dashboard':
       return <ManagerDashboard />
-    case 'entry-type-select':
-      return <EntryTypeSelect />
     case 'entry-project-select':
       return <EntryProjectSelect params={params} />
     case 'manual-entry':
