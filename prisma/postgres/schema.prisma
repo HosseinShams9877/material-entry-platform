@@ -308,6 +308,7 @@ model Worker {
 model MaterialEntry {
   id          String   @id @default(cuid())
   entryNumber Int      @unique // شماره ثبت — یکتا؛ تولید اتمی در تراکنش + Retry روی P2002
+  direction   String   @default("IN") // IN: ورود مصالح | OUT: خروج مصالح — یک جریان واحد برای هر دو
   type        String // PURCHASE | TRANSFER | LOAN | RETURN | OTHER
   status      String   @default("DRAFT")
   workshopId  String // کارگاه ثبت‌کننده (مالک رکورد)
@@ -364,6 +365,7 @@ model MaterialEntry {
   @@index([supervisorId])
   @@index([status, submittedAt])
   @@index([type])
+  @@index([direction, status])
   @@index([sourceSupplierId])
   @@index([createdAt])
   @@index([entryNumber, createdAt])

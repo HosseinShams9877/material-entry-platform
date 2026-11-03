@@ -13,6 +13,7 @@ export type ScreenName =
   | 'manager-dashboard'
   | 'admin-panel'
   | 'entry-type-select'
+  | 'entry-project-select'
   | 'manual-entry'
   | 'entry-history'
   | 'entry-detail'

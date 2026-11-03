@@ -6,6 +6,7 @@ import {
   Package,
   AlertTriangle,
   ArrowDownToLine,
+  ArrowUpFromLine,
   ChevronLeft,
   CheckCircle2,
   Loader2,
@@ -17,7 +18,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { api, ClientApiError, type EntryListItem, type InventoryStockItem, type MasterData } from '@/lib/client'
 import { useApp } from '@/store/app'
-import { ScreenHeader, EmptyState, ErrorState, ListSkeleton, SelectionSheet, StatCard } from '@/components/app/shared'
+import { ScreenHeader, EmptyState, ErrorState, ListSkeleton, SelectionSheet, StatCard, DirectionBadge } from '@/components/app/shared'
 import { toFa, formatQty, formatRelative } from '@/lib/fa'
 import { DISCREPANCY_KINDS, STATUS_STYLES } from '@/lib/permissions'
 import { cn } from '@/lib/utils'
@@ -31,8 +32,10 @@ interface WarehouseHomeData {
   entryNumber: number
   status: string
   type: string
+  direction: string
   workshopName: string
   supervisorName: string
+  decidedByName: string | null
   itemsCount: number
   firstItem: { materialName: string; quantity: number; unit: string } | null
   submittedAt: string | null
@@ -89,8 +92,10 @@ export default function WarehouseHome() {
         entryNumber: e.entryNumber,
         status: e.status,
         type: e.type,
+        direction: e.direction,
         workshopName: e.workshopName,
         supervisorName: e.supervisorName,
+        decidedByName: e.decidedByName,
         itemsCount: e.items.length,
         firstItem: e.items[0] ? { materialName: e.items[0].materialName, quantity: e.items[0].quantity, unit: e.items[0].unit } : null,
         submittedAt: e.submittedAt,
@@ -175,16 +180,25 @@ export default function WarehouseHome() {
           <StatCard label="قلم کمبود" value={toFa(lowCount)} dotColor="bg-red-500" />
         </div>
 
-        {/* اکشن‌های سریع */}
+        {/* اکشن‌های سریع — جریان یکپارچه ثبت ورود/خروج (نیازمند ۷: همان مسیر سرپرستان) */}
         <div className="grid grid-cols-2 gap-2.5">
           <button
             type="button"
-            onClick={() => navigate('inventory')}
+            onClick={() => navigate('entry-project-select', { direction: 'IN' })}
             className="rounded-xl border border-border bg-card p-3.5 text-right active:scale-[0.99] transition-transform"
           >
             <ArrowDownToLine className="size-5 text-green-600 mb-1.5" />
-            <span className="block text-sm font-medium">ثبت ورود / خروج</span>
-            <span className="block text-[11px] text-muted-foreground mt-0.5">گردش انبار پروژه‌های خودتان</span>
+            <span className="block text-sm font-medium">ثبت ورود مصالح</span>
+            <span className="block text-[11px] text-muted-foreground mt-0.5">همان فرم سرپرستان — با انتخاب پروژه</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate('entry-project-select', { direction: 'OUT' })}
+            className="rounded-xl border border-border bg-card p-3.5 text-right active:scale-[0.99] transition-transform"
+          >
+            <ArrowUpFromLine className="size-5 text-orange-600 mb-1.5" />
+            <span className="block text-sm font-medium">ثبت خروج مصالح</span>
+            <span className="block text-[11px] text-muted-foreground mt-0.5">خروج از انبار پروژهٔ انتخاب‌شده</span>
           </button>
           {canDeclare ? (
             <button
@@ -241,8 +255,13 @@ export default function WarehouseHome() {
                       <span>· {e.supervisorName}</span>
                       {e.submittedAt ? <span>· {formatRelative(e.submittedAt)}</span> : null}
                     </p>
+                    <p className="text-[11px] text-muted-foreground mt-1 flex items-center gap-1.5 flex-wrap">
+                      <DirectionBadge direction={e.direction} />
+                      <span>· {e.direction === 'OUT' ? 'خروج' : 'ورود'} ثبت‌شده</span>
+                      {e.decidedByName ? <span>· تأییدکننده: {e.decidedByName}</span> : null}
+                    </p>
                     <span className={cn('mt-2 inline-flex items-center gap-1 text-xs font-medium', isConfirm ? 'text-amber-600' : 'text-teal-600')}>
-                      {isConfirm ? 'تأیید ورود در انبار' : 'ثبت تحویل'}
+                      {isConfirm ? (e.direction === 'OUT' ? 'تأیید خروج در انبار' : 'تأیید ورود در انبار') : 'ثبت تحویل'}
                       <ChevronLeft className="size-3.5" />
                     </span>
                   </button>

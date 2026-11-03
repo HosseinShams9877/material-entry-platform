@@ -26,6 +26,11 @@ export const GET = apiHandler(
     if (q) and.push({ materialName: { contains: q } })
     const projectId = url.searchParams.get('projectId')
     if (projectId) and.push({ projectId })
+    // فیلتر بازهٔ تاریخ — مثل لیست ثبت‌ها (from/to با فرمت YYYY-MM-DD)
+    const from = url.searchParams.get('from') ?? ''
+    const to = url.searchParams.get('to') ?? ''
+    if (/^\d{4}-\d{2}-\d{2}$/.test(from)) and.push({ createdAt: { gte: new Date(`${from}T00:00:00.000Z`) } })
+    if (/^\d{4}-\d{2}-\d{2}$/.test(to)) and.push({ createdAt: { lte: new Date(`${to}T23:59:59.999Z`) } })
 
     const where: Prisma.InventoryMovementWhereInput = { AND: and }
 

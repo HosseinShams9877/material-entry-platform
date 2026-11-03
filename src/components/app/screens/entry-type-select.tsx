@@ -4,7 +4,7 @@ import { PenLine, ArrowLeftRight, HandCoins, Undo2, PackagePlus } from 'lucide-r
 import { useEffect } from 'react'
 import { useApp } from '@/store/app'
 import { ScreenHeader } from '@/components/app/shared'
-import { ENTRY_TYPES } from '@/lib/permissions'
+import { ENTRY_TYPES, ENTRY_DIRECTIONS, type EntryTypeKey, type EntryDirectionKey } from '@/lib/permissions'
 
 const TYPE_ICONS = {
   PURCHASE: PackagePlus,
@@ -14,28 +14,45 @@ const TYPE_ICONS = {
   OTHER: PackagePlus,
 } as const
 
-/** صفحه انتخاب نوع ورود — گام اول ثبت دستی */
-export default function EntryTypeSelect() {
+/** صفحه انتخاب نوع ثبت — گام دوم جریان یکپارچه (پروژه از قبل انتخاب شده است) */
+export default function EntryTypeSelect({ params }: { params?: Record<string, unknown> }) {
   const navigate = useApp((s) => s.navigate)
   const back = useApp((s) => s.back)
   const role = useApp((s) => s.session?.user.role)
+  const direction = (params?.direction as EntryDirectionKey) ?? 'IN'
+  const projectId = (params?.projectId as string | undefined) ?? undefined
+  const projectName = (params?.projectName as string | undefined) ?? undefined
 
   function resetHome(r: string) {
     if (r === 'FIELD_WORKER') navigate('worker-home', undefined, true)
     else if (r === 'PROJECT_MANAGER') navigate('manager-dashboard', undefined, true)
+    else if (r === 'WAREHOUSE_KEEPER') navigate('warehouse-home', undefined, true)
     else navigate('supervisor-home', undefined, true)
   }
 
-  // گارد دسترسی: فقط نقش‌های ثبت‌کنندهٔ ورود اجازهٔ ورود به این صفحه دارند
+  // گارد دسترسی: سرپرست، مدیر و انباردار اجازهٔ ثبت دارند (جریان یکپارچه — نیازمند ۳)
   useEffect(() => {
-    if (role && !['SITE_SUPERVISOR', 'PROJECT_MANAGER'].includes(role)) {
+    if (role && !['SITE_SUPERVISOR', 'PROJECT_MANAGER', 'WAREHOUSE_KEEPER'].includes(role)) {
       resetHome(role)
     }
   }, [role])
 
+  const go = (type: EntryTypeKey) => {
+    if (!projectId) {
+      // بدون پروژهٔ انتخاب‌شده نمی‌توان ثبت کرد — به گام اول برمی‌گردیم (نیازمند ۴)
+      navigate('entry-project-select', { direction }, true)
+      return
+    }
+    navigate('manual-entry', { type, direction, projectId, projectName })
+  }
+
   return (
     <div className="max-w-lg mx-auto min-h-dvh flex flex-col">
-      <ScreenHeader title="نوع ورود را انتخاب کنید" subtitle="سپس فرم متناسب نمایش داده می‌شود" onBack={back} />
+      <ScreenHeader
+        title={direction === 'OUT' ? 'نوع خروج را انتخاب کنید' : 'نوع ورود را انتخاب کنید'}
+        subtitle={projectName ? `پروژه: ${projectName}` : 'سپس فرم متناسب نمایش داده می‌شود'}
+        onBack={back}
+      />
       <div className="p-4 space-y-2.5">
         {Object.entries(ENTRY_TYPES).map(([key, label]) => {
           const Icon = TYPE_ICONS[key as keyof typeof TYPE_ICONS]
@@ -43,7 +60,7 @@ export default function EntryTypeSelect() {
             <button
               key={key}
               type="button"
-              onClick={() => navigate('manual-entry', { type: key })}
+              onClick={() => go(key as EntryTypeKey)}
               className="w-full rounded-2xl border border-border bg-card p-4 flex items-center gap-4 text-right min-h-16 active:scale-[0.99] transition-transform"
             >
               <span className="size-11 rounded-xl bg-secondary flex items-center justify-center shrink-0">
@@ -59,7 +76,7 @@ export default function EntryTypeSelect() {
       </div>
       <div className="p-4 mt-auto">
         <p className="text-center text-xs text-muted-foreground">
-          نوع ورود را انتخاب کنید — سپس اقلام مصالح را وارد کنید.
+          {ENTRY_DIRECTIONS[direction]} — نوع را انتخاب کنید، سپس اقلام مصالح را وارد کنید.
         </p>
       </div>
     </div>

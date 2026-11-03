@@ -5,7 +5,7 @@ import { Search, X, CalendarDays } from 'lucide-react'
 import { Drawer } from 'vaul'
 import { api, type EntryListItem } from '@/lib/client'
 import { useApp } from '@/store/app'
-import { ScreenHeader, StatusBadge, TypeBadge, ListSkeleton, EmptyState, ErrorState } from '@/components/app/shared'
+import { ScreenHeader, StatusBadge, TypeBadge, DirectionBadge, ListSkeleton, EmptyState, ErrorState } from '@/components/app/shared'
 import { JalaliCalendarSheet } from '@/components/app/jalali-calendar-sheet'
 import { formatRelative, formatQty, toFa, formatJalaliFromISO } from '@/lib/fa'
 import { Button } from '@/components/ui/button'
@@ -21,9 +21,17 @@ const STATUS_FILTERS = [
   { key: 'CLOSED', label: 'بایگانی' },
 ]
 
+// فیلتر جهت ثبت — ورود / خروج (نیازمند ۵)
+const DIRECTION_FILTERS = [
+  { key: 'ALL', label: 'ورود و خروج' },
+  { key: 'IN', label: 'ورود' },
+  { key: 'OUT', label: 'خروج' },
+] as const
+
 export default function EntryHistory({ params }: { params?: Record<string, unknown> }) {
   const [entries, setEntries] = useState<EntryListItem[]>([])
   const [status, setStatus] = useState<string>((params?.status as string) ?? 'ALL')
+  const [direction, setDirection] = useState<string>('ALL')
   const [query, setQuery] = useState('')
   const [from, setFrom] = useState<string | null>(null)
   const [to, setTo] = useState<string | null>(null)
@@ -41,12 +49,12 @@ export default function EntryHistory({ params }: { params?: Record<string, unkno
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const load = useCallback(
-    async (p: number, st: string, q: string, f: string | null, t: string | null) => {
+    async (p: number, st: string, dr: string, q: string, f: string | null, t: string | null) => {
       setLoading(true)
       setError(false)
       try {
         const res = await api.get<{ entries: EntryListItem[]; pagination: { totalPages: number } }>(
-          `/api/v1/material-entries?page=${p}&pageSize=15&status=${st}${q ? `&q=${encodeURIComponent(q)}` : ''}${f ? `&from=${f}` : ''}${t ? `&to=${t}` : ''}`
+          `/api/v1/material-entries?page=${p}&pageSize=15&status=${st}${dr !== 'ALL' ? `&direction=${dr}` : ''}${q ? `&q=${encodeURIComponent(q)}` : ''}${f ? `&from=${f}` : ''}${t ? `&to=${t}` : ''}`
         )
         setEntries(res.entries)
         setTotalPages(res.pagination.totalPages)
@@ -60,18 +68,24 @@ export default function EntryHistory({ params }: { params?: Record<string, unkno
   )
 
   useEffect(() => {
-    void load(page, status, query, from, to)
-  }, [page, status, from, to, load])
+    void load(page, status, direction, query, from, to)
+  }, [page, status, direction, from, to, load])
 
   const applyFilter = (st: string) => {
     setStatus(st)
     setPage(1)
-    void load(1, st, query, from, to)
+    void load(1, st, direction, query, from, to)
+  }
+
+  const applyDirection = (dr: string) => {
+    setDirection(dr)
+    setPage(1)
+    void load(1, status, dr, query, from, to)
   }
 
   const search = () => {
     setPage(1)
-    void load(1, status, query, from, to)
+    void load(1, status, direction, query, from, to)
   }
 
   const clearDateFilter = () => {
@@ -79,7 +93,7 @@ export default function EntryHistory({ params }: { params?: Record<string, unkno
     setTo(null)
     setDateFilterOpen(false)
     setPage(1)
-    void load(1, status, query, null, null)
+    void load(1, status, direction, query, null, null)
   }
 
   const hasDateFilter = !!from || !!to
@@ -106,7 +120,7 @@ export default function EntryHistory({ params }: { params?: Record<string, unkno
             onClick={() => {
               setQuery('')
               setPage(1)
-              void load(1, status, '', from, to)
+              void load(1, status, direction, '', from, to)
             }}
             className="absolute left-7 top-1/2 -translate-y-1/2 mt-1.5"
             aria-label="پاک کردن"
@@ -116,7 +130,21 @@ export default function EntryHistory({ params }: { params?: Record<string, unkno
         ) : null}
       </div>
 
-      {/* فیلتر وضعیت + فیلتر تاریخ */}
+      {/* فیلتر جهت + وضعیت + فیلتر تاریخ */}
+      <div className="px-4 pt-2.5 flex gap-2 overflow-x-auto no-scrollbar">
+        {DIRECTION_FILTERS.map((f) => (
+          <button
+            key={f.key}
+            type="button"
+            onClick={() => applyDirection(f.key)}
+            className={`shrink-0 rounded-full border px-3.5 py-1.5 text-xs font-medium min-h-8 transition-colors ${
+              direction === f.key ? 'bg-amber-500 text-zinc-900 border-amber-500' : 'bg-card border-border text-muted-foreground'
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
       <div className="px-4 pt-2.5 pb-3 flex gap-2 overflow-x-auto no-scrollbar">
         {STATUS_FILTERS.map((f) => (
           <button
@@ -154,7 +182,7 @@ export default function EntryHistory({ params }: { params?: Record<string, unkno
       {loading && entries.length === 0 ? (
         <ListSkeleton rows={5} />
       ) : error && entries.length === 0 ? (
-        <ErrorState message={ERROR_MSG} onRetry={() => void load(page, status, query, from, to)} />
+        <ErrorState message={ERROR_MSG} onRetry={() => void load(page, status, direction, query, from, to)} />
       ) : entries.length === 0 ? (
         <EmptyState title="ثبتی پیدا نشد" hint="با این فیلترها هیچ ثبت ورودی وجود ندارد." />
       ) : (
@@ -184,11 +212,13 @@ export default function EntryHistory({ params }: { params?: Record<string, unkno
                 {e.items.length > 1 ? ` + ${toFa(e.items.length - 1)} قلم` : ''}
               </p>
               <div className="flex items-center gap-2 mt-2 flex-wrap text-[11px] text-muted-foreground">
+                <DirectionBadge direction={e.direction} />
                 <TypeBadge type={e.type} />
                 {e.source ? <span>از {e.source}</span> : null}
                 {e.projects.map((p) => (
                   <span key={p.id}>{p.name}</span>
                 ))}
+                {e.decidedByName ? <span>· تأییدکننده: {e.decidedByName}</span> : null}
                 <span className="mr-auto">شماره {toFa(e.entryNumber)}</span>
               </div>
             </button>
@@ -257,7 +287,7 @@ export default function EntryHistory({ params }: { params?: Record<string, unkno
                 onClick={() => {
                   setDateFilterOpen(false)
                   setPage(1)
-                  void load(1, status, query, from, to)
+                  void load(1, status, direction, query, from, to)
                 }}
               >
                 اعمال فیلتر

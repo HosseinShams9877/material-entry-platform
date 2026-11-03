@@ -17,6 +17,7 @@ export const GET = apiHandler(
     const url = req.nextUrl
     const status = url.searchParams.get('status') // OPEN | RESOLVED
     const workshopId = url.searchParams.get('workshopId')
+    const q = url.searchParams.get('q')?.trim()
 
     const and: Prisma.StockDiscrepancyWhereInput[] = []
     // اسکوپ — انباردار/سرپرست فقط کارگاه‌های خودش؛ مدیر پروژه همه
@@ -29,6 +30,7 @@ export const GET = apiHandler(
     }
     if (status === 'OPEN' || status === 'RESOLVED') and.push({ status })
     if (workshopId) and.push({ workshopId })
+    if (q) and.push({ materialName: { contains: q } })
 
     const where: Prisma.StockDiscrepancyWhereInput = { AND: and }
 

@@ -3,7 +3,7 @@ import { apiHandler, ok, ApiError } from '@/lib/api'
 import { canAccessEntry } from '@/lib/scope'
 import { hasPermission } from '@/lib/permissions'
 import { isLocked } from '@/lib/entry-rules'
-import { canDirectEdit, canRequestCorrection, canResubmit, statusHint } from '@/lib/entry-rules'
+import { canDirectEdit, canRequestCorrection, canResubmit, canManageEntry, statusHint } from '@/lib/entry-rules'
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -49,15 +49,16 @@ export async function GET(req: import('next/server').NextRequest, ctx: RoutePara
     return ok({
       entry: {
         ...entry,
-        canEdit: hasPermission(user.role, 'entry.edit') && canDirectEdit(entry) && entry.supervisorId === user.id,
-        canResubmit: hasPermission(user.role, 'entry.submit') && canResubmit(entry) && entry.supervisorId === user.id,
+        // انباردار و مدیر کل می‌توانند ثبت‌های دیگران را مانند سرپرست ویرایش/ارسال مجدد کنند
+        canEdit: hasPermission(user.role, 'entry.edit') && canDirectEdit(entry) && canManageEntry(entry, user),
+        canResubmit: hasPermission(user.role, 'entry.submit') && canResubmit(entry) && canManageEntry(entry, user),
         canReview: hasPermission(user.role, 'entry.review') && ['SUBMITTED', 'PENDING_REVIEW', 'RESUBMITTED', 'TECH_REVIEWED'].includes(entry.status),
         canTechReview: hasPermission(user.role, 'entry.techReview') && (['SUBMITTED', 'PENDING_REVIEW', 'RESUBMITTED'].includes(entry.status) || entry.status === 'TECH_REVIEW'),
         canWarehouseConfirm: hasPermission(user.role, 'entry.warehouse') && ['APPROVED', 'LOCKED'].includes(entry.status),
         canDeliver: hasPermission(user.role, 'entry.warehouse') && entry.status === 'WAREHOUSE_CONFIRMED',
         canClose: hasPermission(user.role, 'entry.close') && entry.status === 'DELIVERED',
         canRollback: hasPermission(user.role, 'entry.rollback') && ['CLOSED', 'DELIVERED', 'WAREHOUSE_CONFIRMED', 'APPROVED', 'TECH_REVIEWED', 'TECH_REVIEW'].includes(entry.status),
-        canRequestCorrection: hasPermission(user.role, 'entry.correction.request') && canRequestCorrection(entry) && entry.supervisorId === user.id,
+        canRequestCorrection: hasPermission(user.role, 'entry.correction.request') && canRequestCorrection(entry) && canManageEntry(entry, user),
         hint: statusHint(entry),
       },
     })
@@ -76,8 +77,8 @@ export async function PATCH(req: import('next/server').NextRequest, ctx: RoutePa
       if (!entry || !(await canAccessEntry(user, entry))) {
         throw new ApiError(404, 'NOT_FOUND', 'این ثبت یافت نشد یا به آن دسترسی ندارید.')
       }
-      if (entry.supervisorId !== user.id && user.role !== 'PROJECT_MANAGER') {
-        throw new ApiError(403, 'FORBIDDEN', 'فقط سرپرستِ ثبت‌کننده می‌تواند این ثبت را ویرایش کند.')
+      if (!canManageEntry(entry, user)) {
+        throw new ApiError(403, 'FORBIDDEN', 'فقط ثبت‌کننده، انباردار یا مدیر پروژه می‌تواند این ثبت را ویرایش کند.')
       }
 
       const input = body

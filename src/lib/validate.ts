@@ -35,6 +35,7 @@ export const entryItemSchema = z.object({
 export type EntryItemInput = z.infer<typeof entryItemSchema>
 
 export const createEntrySchema = z.object({
+  direction: z.enum(['IN', 'OUT']).default('IN'), // IN: ورود | OUT: خروج — یک فرم/جریان واحد
   type: z.enum(['PURCHASE', 'TRANSFER', 'LOAN', 'RETURN', 'OTHER'], { message: 'نوع ورود را انتخاب کنید.' }),
   sourceType: z.enum(['SUPPLIER', 'WORKSHOP', 'OTHER'], { message: 'نوع مبدأ را انتخاب کنید.' }),
   sourceSupplierId: z.string().trim().optional().nullable(),

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import {
   Building2, Factory, Plus, Trash2, ChevronDown, Package, Users, FolderKanban,
-  ClipboardType, StickyNote, AlertCircle, Loader2, CheckCircle2, CalendarDays,
+  ClipboardType, StickyNote, AlertCircle, Loader2, CheckCircle2, CalendarDays, ArrowLeftRight,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,7 +13,7 @@ import { api, ClientApiError, type MasterData, type EntryDetailData } from '@/li
 import { useApp } from '@/store/app'
 import { SelectionSheet, ScreenHeader } from '@/components/app/shared'
 import { JalaliCalendarSheet } from '@/components/app/jalali-calendar-sheet'
-import { ENTRY_TYPES, SOURCE_TYPES, WORKER_KINDS, type EntryTypeKey } from '@/lib/permissions'
+import { ENTRY_TYPES, ENTRY_DIRECTIONS, SOURCE_TYPES, WORKER_KINDS, type EntryTypeKey, type EntryDirectionKey } from '@/lib/permissions'
 import { toFa, toEnDigits, formatJalaliFromISO, todayISO } from '@/lib/fa'
 
 export interface DraftItem {
@@ -31,6 +31,8 @@ export interface DraftWorker {
 }
 
 export interface DraftFormValue {
+  /** جهت ثبت: ورود به انبار (IN) یا خروج از انبار (OUT) */
+  direction: EntryDirectionKey
   type: EntryTypeKey
   sourceType: 'SUPPLIER' | 'WORKSHOP' | 'OTHER'
   sourceSupplierId: string | null
@@ -47,14 +49,19 @@ export interface DraftFormValue {
   highlight: Set<string>
 }
 
-export function emptyDraft(type: EntryTypeKey = 'PURCHASE'): DraftFormValue {
+export function emptyDraft(
+  type: EntryTypeKey = 'PURCHASE',
+  direction: EntryDirectionKey = 'IN',
+  lockProjectId?: string
+): DraftFormValue {
   return {
+    direction,
     type,
     sourceType: type === 'TRANSFER' || type === 'LOAN' ? 'WORKSHOP' : 'SUPPLIER',
     sourceSupplierId: null,
     sourceWorkshopId: null,
     sourceLabel: null,
-    projectIds: [],
+    projectIds: lockProjectId ? [lockProjectId] : [],
     items: [{ materialId: null, materialName: '', quantity: '', unit: '', brand: '' }],
     workers: [],
     notes: '',
@@ -70,6 +77,7 @@ export function EntryDraftForm({
   subtitle,
   banner,
   editId,
+  lockProjectId,
 }: {
   initial: DraftFormValue
   title: string
@@ -77,8 +85,14 @@ export function EntryDraftForm({
   banner?: React.ReactNode
   /** در حالت ویرایش — شناسه ثبت موجود */
   editId?: string
+  /** پروژهٔ قفل‌شدهٔ جریان یکپارچه — مصالح حتماً به انبار کارگاه همین پروژه ثبت می‌شود */
+  lockProjectId?: string
 }) {
-  const [v, setV] = useState<DraftFormValue>(initial)
+  const [v, setV] = useState<DraftFormValue>(
+    lockProjectId && !initial.projectIds.includes(lockProjectId)
+      ? { ...initial, projectIds: [lockProjectId] }
+      : initial
+  )
   const [master, setMaster] = useState<MasterData | null>(null)
   const [sheet, setSheet] = useState<null | 'type' | 'source' | 'projects' | 'material' | 'unit' | 'workers' | 'date'>(null)
   const [activeItem, setActiveItem] = useState<number | null>(null)
@@ -103,6 +117,7 @@ export function EntryDraftForm({
       .then((res) => {
         const e = res.entry
         setV({
+          direction: (e.direction ?? 'IN') as EntryDirectionKey,
           type: e.type as EntryTypeKey,
           sourceType: e.sourceType as DraftFormValue['sourceType'],
           sourceSupplierId: e.sourceSupplier?.id ?? null,
@@ -113,7 +128,7 @@ export function EntryDraftForm({
               : e.sourceType === 'WORKSHOP'
                 ? e.sourceWorkshop?.name ?? null
                 : e.sourceDescription,
-          projectIds: e.projects.map((p) => p.project.id),
+          projectIds: lockProjectId ? [lockProjectId] : e.projects.map((p) => p.project.id),
           items: e.items.map((it) => ({
             materialId: it.materialId,
             materialName: it.materialName,
@@ -178,12 +193,13 @@ export function EntryDraftForm({
     setSaving(true)
     try {
       const payload = {
+        direction: v.direction,
         type: v.type,
         sourceType: v.sourceType,
         sourceSupplierId: v.sourceSupplierId,
         sourceWorkshopId: v.sourceWorkshopId,
         sourceDescription: v.sourceType === 'OTHER' ? v.sourceLabel : v.sourceLabel,
-        projectIds: v.projectIds,
+        projectIds: lockProjectId ? [lockProjectId] : v.projectIds,
         items: v.items.map((it, idx) => ({
           materialId: it.materialId,
           materialName: it.materialName,
@@ -228,6 +244,16 @@ export function EntryDraftForm({
 
   const hl = (field: string) => v.highlight.has(field)
 
+  const isOut = v.direction === 'OUT'
+  const lockedProject = useMemo(
+    () => (lockProjectId ? master?.projects.find((p) => p.id === lockProjectId) ?? null : null),
+    [lockProjectId, master]
+  )
+  const lockedWorkshop = useMemo(
+    () => (lockedProject?.workshopId ? master?.workshops.find((w) => w.id === lockedProject.workshopId) ?? null : null),
+    [lockedProject, master]
+  )
+
   if (loadingEdit) {
     return (
       <div className="max-w-lg mx-auto min-h-dvh flex items-center justify-center">
@@ -242,8 +268,26 @@ export function EntryDraftForm({
       {banner}
 
       <div className="p-4 space-y-4 pb-32">
+        {/* جهت ثبت — ورود / خروج */}
+        <Section icon={<ArrowLeftRight className="size-4" />} label="جهت ثبت" required>
+          <div className="grid grid-cols-2 gap-2">
+            {Object.entries(ENTRY_DIRECTIONS).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => set('direction', key as EntryDirectionKey)}
+                className={`rounded-xl border px-3 py-3 text-sm font-medium min-h-11 transition-colors ${
+                  v.direction === key ? 'bg-accent text-accent-foreground border-accent' : 'bg-card border-border'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </Section>
+
         {/* نوع ورود */}
-        <Section icon={<ClipboardType className="size-4" />} label="نوع ورود" required missing={hl('type')}>
+        <Section icon={<ClipboardType className="size-4" />} label={isOut ? 'نوع خروج' : 'نوع ورود'} required missing={hl('type')}>
           <div className="grid grid-cols-2 gap-2">
             {Object.entries(ENTRY_TYPES).map(([key, label]) => (
               <button
@@ -265,26 +309,43 @@ export function EntryDraftForm({
         </Section>
 
         {/* پروژه‌ها */}
-        <Section icon={<FolderKanban className="size-4" />} label="پروژه / پروژه‌ها" required missing={hl('project') || errors.some((e) => e.includes('پروژه')) && showErrors}>
-          <button
-            type="button"
-            onClick={() => setSheet('projects')}
-            className="w-full flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3 min-h-12 text-right"
-          >
-            <span className={v.projectIds.length ? 'text-sm' : 'text-sm text-muted-foreground'}>
-              {v.projectIds.length
-                ? v.projectIds
-                    .map((id) => projectOptions.find((o) => o.id === id)?.label)
-                    .filter(Boolean)
-                    .join('، ')
-                : 'انتخاب پروژه…'}
-            </span>
-            <ChevronDown className="size-4 text-muted-foreground" />
-          </button>
+        <Section
+          icon={<FolderKanban className="size-4" />}
+          label="پروژه / پروژه‌ها"
+          required
+          missing={hl('project') || errors.some((e) => e.includes('پروژه')) && showErrors}
+          hint={lockProjectId ? 'قفل‌شده' : undefined}
+        >
+          {lockProjectId ? (
+            // جریان یکپارچه — پروژه از قبل انتخاب شده و مصالات به انبار کارگاه همین پروژه ثبت می‌شود
+            <div className="rounded-xl border border-accent/40 bg-accent/5 px-4 py-3 min-h-12 flex items-center gap-2">
+              <FolderKanban className="size-4 text-accent shrink-0" />
+              <span className="text-sm font-medium truncate">{lockedProject?.name ?? 'پروژهٔ انتخاب‌شده'}</span>
+              {lockedWorkshop ? (
+                <span className="text-[11px] text-muted-foreground mr-auto shrink-0">انبار {lockedWorkshop.name}</span>
+              ) : null}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setSheet('projects')}
+              className="w-full flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3 min-h-12 text-right"
+            >
+              <span className={v.projectIds.length ? 'text-sm' : 'text-sm text-muted-foreground'}>
+                {v.projectIds.length
+                  ? v.projectIds
+                      .map((id) => projectOptions.find((o) => o.id === id)?.label)
+                      .filter(Boolean)
+                      .join('، ')
+                  : 'انتخاب پروژه…'}
+              </span>
+              <ChevronDown className="size-4 text-muted-foreground" />
+            </button>
+          )}
         </Section>
 
         {/* مبدأ */}
-        <Section icon={v.sourceType === 'SUPPLIER' ? <Factory className="size-4" /> : <Building2 className="size-4" />} label="مبدأ ورود" required missing={hl('source') || (showErrors && errors.some((e) => e.includes('مبدأ')))}>
+        <Section icon={v.sourceType === 'SUPPLIER' ? <Factory className="size-4" /> : <Building2 className="size-4" />} label={isOut ? 'مقصد خروج' : 'مبدأ ورود'} required missing={hl('source') || (showErrors && errors.some((e) => e.includes('مبدأ')))}>
           <div className="grid grid-cols-3 gap-2 mb-2">
             {Object.entries(SOURCE_TYPES).map(([key, label]) => (
               <button
@@ -332,13 +393,13 @@ export function EntryDraftForm({
           )}
         </Section>
 
-        {/* تاریخ ورود — تقویم شمسی پاپ‌آپ */}
-        <Section icon={<CalendarDays className="size-4" />} label="تاریخ ورود مصالح" hint="اختیاری — پیش‌فرض امروز">
+        {/* تاریخ ثبت — تقویم شمسی پاپ‌آپ */}
+        <Section icon={<CalendarDays className="size-4" />} label={isOut ? 'تاریخ خروج مصالح' : 'تاریخ ورود مصالح'} hint="اختیاری — پیش‌فرض امروز">
           <button
             type="button"
             onClick={() => setSheet('date')}
             className="w-full flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3 min-h-12 text-right"
-            aria-label="انتخاب تاریخ ورود"
+            aria-label={isOut ? 'انتخاب تاریخ خروج' : 'انتخاب تاریخ ورود'}
           >
             <span className={v.deliveryAt ? 'text-sm font-medium' : 'text-sm text-muted-foreground'}>
               {v.deliveryAt ? formatJalaliFromISO(v.deliveryAt) : 'انتخاب تاریخ…'}
@@ -548,7 +609,7 @@ export function EntryDraftForm({
         onOpenChange={(o) => !o && setSheet(null)}
         value={v.deliveryAt}
         onSelect={(iso) => set('deliveryAt', iso)}
-        title="تاریخ ورود مصالح"
+        title={isOut ? 'تاریخ خروج مصالح' : 'تاریخ ورود مصالح'}
         disableFuture
       />
     </div>

@@ -79,13 +79,17 @@ export type RoleKey = keyof typeof ROLES
 export const ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
   // مدیر پروژه‌ها — دسترسی کامل (مدیریت، تأیید، امضا، گزارش‌گیری سازمانی)
   PROJECT_MANAGER: ALL_PERMISSIONS,
-  // سرپرست کارگاه — عملیات کارگاه‌های تحت سرپرستی + تأیید انبار (وظایف ادغام‌شده قبلی)
+  // سرپرست کارگاه — عملیات کارگاه‌های تحت سرپرستی + کامل کردن زنجیرهٔ تأیید (مثل مدیر)
   SITE_SUPERVISOR: [
     'entry.create',
     'entry.edit',
     'entry.submit',
+    'entry.review',
+    'entry.techReview',
     'entry.correction.request',
     'entry.warehouse',
+    'entry.close',
+    'entry.rollback',
     'audit.view',
     'reports.view',
     'task.view',
@@ -106,9 +110,17 @@ export const ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
     'workreport.view',
     'workreport.create',
   ],
-  // انباردار — پنل جداگانه انبار: تأیید ورود/تحویل، ثبت گردش، تعدیل موجودی، اعلام کمبود/مغایرت
+  // انباردار — پنل انبار: ثبت ورود/خروج مصالح (دقیقاً مثل سرپرست) + تأیید تمام مراحل زنجیره
   WAREHOUSE_KEEPER: [
+    'entry.create',
+    'entry.edit',
+    'entry.submit',
+    'entry.review',
+    'entry.techReview',
     'entry.warehouse',
+    'entry.close',
+    'entry.rollback',
+    'entry.correction.request',
     'audit.view',
     'reports.view',
     'task.view',
@@ -143,6 +155,13 @@ export const ENTRY_TYPES = {
   OTHER: 'سایر',
 } as const
 export type EntryTypeKey = keyof typeof ENTRY_TYPES
+
+// جهت ثبت — ورود و خروج یک جریان واحد دارند؛ فقط جهت انتقال موجودی فرق می‌کند
+export const ENTRY_DIRECTIONS = {
+  IN: 'ورود مصالح',
+  OUT: 'خروج مصالح',
+} as const
+export type EntryDirectionKey = keyof typeof ENTRY_DIRECTIONS
 
 export const SOURCE_TYPES = {
   SUPPLIER: 'تأمین‌کننده',

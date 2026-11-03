@@ -9,6 +9,7 @@ import SupervisorHome from '@/components/app/screens/supervisor-home'
 import WorkerHome from '@/components/app/screens/worker-home'
 import WarehouseHome from '@/components/app/screens/warehouse-home'
 import EntryTypeSelect from '@/components/app/screens/entry-type-select'
+import EntryProjectSelect from '@/components/app/screens/entry-project-select'
 import ManualEntry from '@/components/app/screens/manual-entry'
 import EntryHistory from '@/components/app/screens/entry-history'
 import EntryDetail from '@/components/app/screens/entry-detail'
@@ -48,7 +49,7 @@ import { installOfflineSync, getOutboxCount, processOutbox } from '@/lib/offline
 import { toast } from 'sonner'
 
 const NO_NAV_SCREENS = [
-  'login', 'manual-entry', 'entry-detail',
+  'login', 'manual-entry', 'entry-project-select', 'entry-detail',
   'daily-task-form', 'daily-task-detail', 'daily-report-form', 'daily-report-detail',
   'statement-form', 'statement-detail', 'purchase-form', 'purchase-detail', 'work-report-form',
 ]
@@ -69,6 +70,8 @@ function ScreenRenderer({ name, params }: { name: string; params?: Record<string
       return <ManagerDashboard />
     case 'entry-type-select':
       return <EntryTypeSelect />
+    case 'entry-project-select':
+      return <EntryProjectSelect params={params} />
     case 'manual-entry':
       return <ManualEntry params={params} />
     case 'entry-history':

@@ -30,8 +30,15 @@ export type DailyNotificationType =
   | 'PURCHASE_STALE'
   // انبار — اعلام کمبود/مغایرت + مراحل ثبت
   | 'STOCK_DISCREPANCY'
+  | 'ENTRY_SUBMITTED'
   | 'ENTRY_APPROVED'
+  | 'ENTRY_REJECTED'
+  | 'CORRECTION_REQUESTED'
+  | 'CORRECTION_APPROVED'
+  | 'NEW_CORRECTION_REQUEST'
+  | 'ENTRY_TECH_REVIEWED'
   | 'ENTRY_STAGE'
+  | 'ENTRY_CLOSED'
 
 interface NotifyInput {
   userIds: string[]

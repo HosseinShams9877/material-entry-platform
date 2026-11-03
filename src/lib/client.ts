@@ -95,10 +95,12 @@ export interface MasterData {
 export interface EntryListItem {
   id: string
   entryNumber: number
+  direction: string
   type: string
   status: string
   workshopName: string
   supervisorName: string
+  decidedByName: string | null
   source: string | null
   sourceType: string
   deliveryAt: string | null
@@ -117,6 +119,7 @@ export interface EntryDetailData {
   entry: {
     id: string
     entryNumber: number
+    direction: string
     type: string
     status: string
     workshopId: string

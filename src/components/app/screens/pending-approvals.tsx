@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, type EntryListItem } from '@/lib/client'
 import { useApp } from '@/store/app'
-import { ScreenHeader, StatusBadge, TypeBadge, ListSkeleton, EmptyState, ErrorState } from '@/components/app/shared'
+import { ScreenHeader, StatusBadge, TypeBadge, DirectionBadge, ListSkeleton, EmptyState, ErrorState } from '@/components/app/shared'
 import { formatRelative, formatQty, toFa } from '@/lib/fa'
 import { ERROR_MSG } from '@/components/app/messages'
 
@@ -63,6 +63,7 @@ export default function PendingApprovals() {
                   {e.items.length > 1 ? ` + ${toFa(e.items.length - 1)} قلم` : ''}
                 </p>
                 <div className="flex items-center gap-2 mt-2 flex-wrap text-[11px] text-muted-foreground">
+                  <DirectionBadge direction={e.direction} />
                   <TypeBadge type={e.type} />
                   <span>{e.supervisorName}</span>
                   {e.source ? <span>از {e.source}</span> : null}

@@ -3,6 +3,12 @@ import type { MaterialEntry } from '@prisma/client'
 // ─────────────────────────── State Machine ثبت ورود ───────────────────────────
 // منبع حقیقت قوانین وضعیت — تک نقطه اعمال در API و Business Layer
 
+/** چه کسی می‌تواند روی یک ثبت کار کند (ویرایش/ارسال/درخواست اصلاح)؟
+ *  ثبت‌کننده، انباردار (دسترسی کامل به جریان ورود/خروج) و مدیر پروژه. */
+export function canManageEntry(entry: { supervisorId: string }, user: { id: string; role: string }): boolean {
+  return entry.supervisorId === user.id || user.role === 'WAREHOUSE_KEEPER' || user.role === 'PROJECT_MANAGER'
+}
+
 export const EDIT_WINDOW_MS = 24 * 60 * 60 * 1000 // ۲۴ ساعت
 
 export const ENTRY_EDITABLE_STATUSES = [

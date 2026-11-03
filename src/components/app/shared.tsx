@@ -5,7 +5,7 @@ import { Drawer } from 'vaul'
 import { ChevronRight, Search, Check, Inbox, WifiOff, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { STATUS_STYLES, ENTRY_TYPES, TASK_STATUS_STYLES, TASK_PRIORITIES, TASK_PRIORITY_STYLES, REPORT_STATUS_STYLES, type TaskStatusKey, type TaskPriorityKey, type ReportStatusKey } from '@/lib/permissions'
+import { STATUS_STYLES, ENTRY_TYPES, ENTRY_DIRECTIONS, TASK_STATUS_STYLES, TASK_PRIORITIES, TASK_PRIORITY_STYLES, REPORT_STATUS_STYLES, type TaskStatusKey, type TaskPriorityKey, type ReportStatusKey } from '@/lib/permissions'
 import { toFa } from '@/lib/fa'
 import { useApp } from '@/store/app'
 import { cn } from '@/lib/utils'
@@ -32,6 +32,22 @@ export function TypeBadge({ type }: { type: string }) {
   return (
     <span className="inline-flex items-center rounded-md bg-secondary px-2 py-0.5 text-[11px] text-secondary-foreground">
       {ENTRY_TYPES[type as keyof typeof ENTRY_TYPES] ?? type}
+    </span>
+  )
+}
+
+/** بج جهت ثبت — ورود به انبار / خروج از انبار */
+export function DirectionBadge({ direction, size = 'sm' }: { direction: string; size?: 'sm' | 'md' }) {
+  const isOut = direction === 'OUT'
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 rounded-md border font-medium whitespace-nowrap',
+        size === 'sm' ? 'px-2 py-0.5 text-[11px]' : 'px-2.5 py-1 text-xs',
+        isOut ? 'bg-orange-50 text-orange-700 border-orange-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+      )}
+    >
+      {ENTRY_DIRECTIONS[direction as keyof typeof ENTRY_DIRECTIONS] ?? direction}
     </span>
   )
 }
@@ -322,8 +338,9 @@ import { Home, ListChecks, Bell, MoreHorizontal, PenLine, ClipboardCheck, Layout
 
 const NAV_ITEMS_SUPERVISOR = [
   { name: 'supervisor-home', label: 'خانه', icon: Home },
-  { name: 'entry-type-select', label: 'ثبت ورود', icon: PenLine },
+  { name: 'entry-project-select', label: 'ثبت', icon: PenLine },
   { name: 'entry-history', label: 'ثبت‌ها', icon: ListChecks },
+  { name: 'pending-approvals', label: 'تأییدها', icon: ClipboardCheck },
   { name: 'daily-tasks', label: 'وظایف', icon: ListTodo },
   { name: 'notifications', label: 'اعلان‌ها', icon: Bell },
   { name: 'profile', label: 'بیشتر', icon: MoreHorizontal },
@@ -346,12 +363,13 @@ const NAV_ITEMS_WORKER = [
   { name: 'profile', label: 'بیشتر', icon: MoreHorizontal },
 ] as const
 
-/** ناوبری اختصاصی انباردار — پنل جداگانه انبار: خانهٔ انبار، ثبت‌ها، انبار، اعلان‌ها، بیشتر */
+/** ناوبری اختصاصی انباردار — پنل جداگانه انبار: خانهٔ انبار، ثبت یکپارچه، صف تأیید، اعلان‌ها، بیشتر */
 const NAV_ITEMS_WAREHOUSE = [
   { name: 'warehouse-home', label: 'انبار', icon: Warehouse },
+  { name: 'entry-project-select', label: 'ثبت', icon: PenLine },
   { name: 'entry-history', label: 'ثبت‌ها', icon: ListChecks },
+  { name: 'pending-approvals', label: 'تأییدها', icon: ClipboardCheck },
   { name: 'inventory', label: 'موجودی', icon: Package },
-  { name: 'daily-tasks', label: 'وظایف', icon: ListTodo },
   { name: 'notifications', label: 'اعلان‌ها', icon: Bell },
   { name: 'profile', label: 'بیشتر', icon: MoreHorizontal },
 ] as const
@@ -371,7 +389,10 @@ export function BottomNav({ active }: { active: string }) {
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 bg-card border-t border-border safe-bottom" aria-label="ناوبری اصلی">
-      <div className={`max-w-lg mx-auto grid ${(items.length as number) === 4 ? 'grid-cols-4' : 'grid-cols-6'}`}>
+      <div
+        className="max-w-lg mx-auto grid"
+        style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}
+      >
         {items.map((item) => {
           const isActive = active === item.name
           const Icon = item.icon

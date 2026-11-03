@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from 'react'
-import { PenLine, ChevronLeft, Wrench, ListTodo, FileBarChart2, ClipboardList, ShoppingCart, FileSignature, Package, AlertTriangle } from 'lucide-react'
+import { PenLine, ChevronLeft, Wrench, ListTodo, FileBarChart2, ClipboardList, ShoppingCart, FileSignature, Package, AlertTriangle, ArrowLeftRight } from 'lucide-react'
 import { api, type DashboardSupervisor, type DailyTaskListItem } from '@/lib/client'
 import { useApp } from '@/store/app'
 import { StatCard, ListSkeleton, StatusBadge, TypeBadge } from '@/components/app/shared'
@@ -58,7 +58,7 @@ export default function SupervisorHome() {
     }
   }
 
-  const canCreateEntry = !!role && ['SITE_SUPERVISOR', 'PROJECT_MANAGER'].includes(role)
+  const canCreateEntry = !!role && ['SITE_SUPERVISOR', 'PROJECT_MANAGER', 'WAREHOUSE_KEEPER'].includes(role)
   const canDailyModule = !!role && ['SITE_SUPERVISOR', 'PROJECT_MANAGER'].includes(role)
   const isFieldWorker = role === 'FIELD_WORKER'
   const permissions = session?.permissions ?? []
@@ -103,18 +103,29 @@ export default function SupervisorHome() {
         </div>
       ) : null}
 
-      {/* CTAهای بزرگ — فقط برای نقش‌های ثبت‌کننده */}
+      {/* CTAهای بزرگ — فقط برای نقش‌های ثبت‌کننده (جریان یکپارچه ورود/خروج — نیازمند ۵ و ۷) */}
       {canCreateEntry ? (
       <div className="px-4 grid grid-cols-2 gap-3 mb-6">
         <button
           type="button"
-          onClick={() => navigate('manual-entry')}
-          className="rounded-2xl bg-amber-500 text-zinc-900 p-5 text-right min-h-32 flex flex-col justify-between active:scale-[0.98] transition-transform shadow-md shadow-amber-500/20 col-span-2"
+          onClick={() => navigate('entry-project-select', { direction: 'IN' })}
+          className="rounded-2xl bg-amber-500 text-zinc-900 p-5 text-right min-h-32 flex flex-col justify-between active:scale-[0.98] transition-transform shadow-md shadow-amber-500/20"
         >
           <PenLine className="size-8" strokeWidth={2.2} />
           <span>
             <span className="block font-bold text-lg">ثبت ورود مصالح</span>
-            <span className="block text-[11px] text-amber-900 mt-0.5">فرم کوتاه و ساده — با تقویم شمسی</span>
+            <span className="block text-[11px] text-amber-900 mt-0.5">ابتدا پروژه را انتخاب کنید — فرم کوتاه و ساده</span>
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate('entry-project-select', { direction: 'OUT' })}
+          className="rounded-2xl bg-zinc-800 text-white p-5 text-right min-h-32 flex flex-col justify-between active:scale-[0.98] transition-transform shadow-md shadow-zinc-800/20"
+        >
+          <ArrowLeftRight className="size-8" strokeWidth={2.2} />
+          <span>
+            <span className="block font-bold text-lg">ثبت خروج مصالح</span>
+            <span className="block text-[11px] text-zinc-300 mt-0.5">همان مسیر تأیید ورود — برای پروژهٔ انتخاب‌شده</span>
           </span>
         </button>
       </div>

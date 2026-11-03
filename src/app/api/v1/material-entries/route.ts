@@ -13,6 +13,7 @@ export const GET = apiHandler(async ({ req, user }) => {
   const pageSize = Math.min(50, Math.max(5, Number(url.searchParams.get('pageSize') ?? '20') || 20))
   const status = url.searchParams.get('status') ?? ''
   const type = url.searchParams.get('type') ?? ''
+  const direction = url.searchParams.get('direction') ?? ''
   const q = (url.searchParams.get('q') ?? '').trim()
   const from = url.searchParams.get('from') ?? ''
   const to = url.searchParams.get('to') ?? ''
@@ -53,6 +54,7 @@ export const GET = apiHandler(async ({ req, user }) => {
         ? [{ status: { in: status.split(',').map((s) => s.trim()).filter(Boolean) } }]
         : []),
       ...(type && type !== 'ALL' ? [{ type }] : []),
+      ...(direction === 'IN' || direction === 'OUT' ? [{ direction }] : []),
       // فقط ثبت‌های Submit شده + پیش‌نویس‌های خود کاربر
       ...(user.role === 'SITE_SUPERVISOR' ? [{ OR: [{ status: { not: 'DRAFT' } }, { supervisorId: user.id }] }] : []),
       ...(q
@@ -82,6 +84,8 @@ export const GET = apiHandler(async ({ req, user }) => {
         sourceSupplier: { select: { id: true, name: true } },
         sourceWorkshop: { select: { id: true, name: true } },
         attachments: { select: { id: true, kind: true } },
+        // آخرین تصمیم‌گیرنده — برای نمایش «شخص تأییدکننده» در فهرست
+        approvals: { orderBy: { decidedAt: 'desc' }, take: 1, select: { decidedBy: { select: { fullName: true } } } },
         _count: { select: { items: true, attachments: true } },
       },
       orderBy: [{ createdAt: 'desc' }],
@@ -94,11 +98,13 @@ export const GET = apiHandler(async ({ req, user }) => {
     entries: entries.map((e) => ({
       id: e.id,
       entryNumber: e.entryNumber,
+      direction: e.direction,
       type: e.type,
       status: e.status,
       workshopName: e.workshop.name,
       supervisorName: e.supervisor.fullName,
       deliveryAt: e.deliveryAt,
+      decidedByName: e.approvals[0]?.decidedBy.fullName ?? null,
       source:
         e.sourceType === 'SUPPLIER'
           ? e.sourceSupplier?.name ?? null
@@ -159,7 +165,7 @@ export const POST = apiHandler(
 
     // workshopId از Session — قابل جعل از Frontend نیست
     const scope = await getUserScope(user)
-    const effectiveWorkshopId = user.workshopId ?? scope.workshopIds[0]
+    let effectiveWorkshopId = user.workshopId ?? scope.workshopIds[0]
     if (!effectiveWorkshopId) {
       throw new ApiError(403, 'NO_WORKSHOP', 'کارگاه شما مشخص نیست. با مدیر سیستم تماس بگیرید.')
     }
@@ -171,6 +177,23 @@ export const POST = apiHandler(
       const invalid = projectIds.filter((pid) => !allowedProjects.includes(pid))
       if (invalid.length > 0) {
         throw new ApiError(403, 'FORBIDDEN_PROJECT', 'به یکی از پروژه‌های انتخاب‌شده دسترسی ندارید.')
+      }
+    }
+    // قانون پروژه‌محور: وقتی یک پروژه انتخاب شده، مصالح باید به انبار کارگاهِ همان پروژه بروند.
+    // این کارگاه مالک رکورد ثبت می‌شود و موجودی روی همان کارگاه اعمال می‌شود.
+    if (projectIds.length === 1) {
+      const project = await db.project.findUnique({
+        where: { id: projectIds[0] },
+        select: { workshopId: true, isActive: true },
+      })
+      if (!project || !project.isActive) {
+        throw new ApiError(422, 'INVALID_PROJECT', 'پروژهٔ انتخاب‌شده معتبر یا فعال نیست.')
+      }
+      if (project.workshopId) {
+        if (!scope.isGlobal && !scope.workshopIds.includes(project.workshopId)) {
+          throw new ApiError(403, 'FORBIDDEN_PROJECT', 'کارگاه پروژهٔ انتخاب‌شده در دسترسی شما نیست.')
+        }
+        effectiveWorkshopId = project.workshopId
       }
     }
     if (input.sourceType === 'SUPPLIER' && input.sourceSupplierId) {
@@ -220,6 +243,7 @@ export const POST = apiHandler(
         const created = await tx.materialEntry.create({
           data: {
             entryNumber,
+            direction: input.direction ?? 'IN',
             type: input.type,
             status: submitNow ? 'SUBMITTED' : 'DRAFT',
             workshopId: effectiveWorkshopId,

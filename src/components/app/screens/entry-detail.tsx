@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { api, ClientApiError, type EntryDetailData } from '@/lib/client'
 import { useApp } from '@/store/app'
-import { ScreenHeader, StatusBadge, ListSkeleton, ErrorState } from '@/components/app/shared'
+import { ScreenHeader, StatusBadge, DirectionBadge, ListSkeleton, ErrorState } from '@/components/app/shared'
 import { AttachmentUploader, type UploadedAttachment } from '@/components/app/attachment-uploader'
 import { ENTRY_TYPES, WORKER_KINDS, ENTRY_STAGE_LABELS, ENTRY_STAGE_STYLES, STATUS_STYLES } from '@/lib/permissions'
 import { formatJalaliDateTime, formatQty, toFa, formatTimeRemaining, formatJalaliFromISO } from '@/lib/fa'
@@ -93,6 +93,8 @@ export default function EntryDetail({ params }: { params?: Record<string, unknow
 
   const e = data.entry
   const canSubmit = e.canResubmit
+  // شخص تأییدکننده — آخرین اقدام تأیید (نیازمند ۶)
+  const approver = [...e.approvals].reverse().find((a) => a.action === 'APPROVE') ?? null
 
   return (
     <div className="max-w-lg mx-auto min-h-dvh">
@@ -149,10 +151,13 @@ export default function EntryDetail({ params }: { params?: Record<string, unknow
 
         {/* ───────── کارت تأیید ثبت (Preview) ───────── */}
         <div className="rounded-2xl border border-border bg-card overflow-hidden">
-          <div className="bg-secondary/70 px-4 py-3 flex items-center justify-between">
-            <span className="text-sm font-bold">تأیید ثبت ورود مصالح</span>
+          <div className="bg-secondary/70 px-4 py-3 flex items-center justify-between gap-2">
+            <span className="text-sm font-bold flex items-center gap-2">
+              {e.direction === 'OUT' ? 'تأیید ثبت خروج مصالح' : 'تأیید ثبت ورود مصالح'}
+              <DirectionBadge direction={e.direction} />
+            </span>
             {e.currentVersion > 1 ? (
-              <span className="text-[10px] bg-zinc-800 text-white rounded-md px-2 py-0.5">نسخه {toFa(e.currentVersion)}</span>
+              <span className="text-[10px] bg-zinc-800 text-white rounded-md px-2 py-0.5 shrink-0">نسخه {toFa(e.currentVersion)}</span>
             ) : null}
           </div>
 
@@ -168,7 +173,7 @@ export default function EntryDetail({ params }: { params?: Record<string, unknow
             </Row>
             <Row label="نوع ورود">{ENTRY_TYPES[e.type as keyof typeof ENTRY_TYPES] ?? e.type}</Row>
             {e.deliveryAt ? (
-              <Row label="تاریخ ورود مصالح">
+              <Row label={e.direction === 'OUT' ? 'تاریخ خروج مصالح' : 'تاریخ ورود مصالح'}>
                 <span className="font-medium">{formatJalaliFromISO(String(e.deliveryAt))}</span>
               </Row>
             ) : null}
@@ -228,6 +233,18 @@ export default function EntryDetail({ params }: { params?: Record<string, unknow
                 <span className="flex items-center gap-1">
                   <SendHorizonal className="size-3.5" />
                   ارسال: {formatJalaliDateTime(e.submittedAt)}
+                </span>
+              ) : null}
+              {approver ? (
+                <span className="flex items-center gap-1">
+                  <CheckCircle2 className="size-3.5 text-green-600" />
+                  تأییدکننده: {approver.decidedBy.fullName}
+                </span>
+              ) : null}
+              {e.decidedAt && approver ? (
+                <span className="flex items-center gap-1">
+                  <Clock className="size-3.5" />
+                  تأیید: {formatJalaliDateTime(e.decidedAt)}
                 </span>
               ) : null}
             </div>

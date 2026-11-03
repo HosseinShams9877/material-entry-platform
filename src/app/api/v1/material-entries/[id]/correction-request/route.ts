@@ -2,6 +2,7 @@ import { db } from '@/lib/db'
 import { apiHandler, ok, ApiError } from '@/lib/api'
 import { canAccessEntry } from '@/lib/scope'
 import { hasPermission } from '@/lib/permissions'
+import { canManageEntry } from '@/lib/entry-rules'
 import { createCorrectionRequest } from '@/lib/workflow'
 import { correctionRequestSchema } from '@/lib/validate'
 
@@ -15,8 +16,8 @@ export const POST = apiHandler(
     if (!entry || !(await canAccessEntry(user, entry))) {
       throw new ApiError(404, 'NOT_FOUND', 'این ثبت یافت نشد یا به آن دسترسی ندارید.')
     }
-    if (entry.supervisorId !== user.id) {
-      throw new ApiError(403, 'FORBIDDEN', 'فقط سرپرستِ ثبت‌کننده می‌تواند درخواست اصلاح بدهد.')
+    if (!canManageEntry(entry, user)) {
+      throw new ApiError(403, 'FORBIDDEN', 'فقط ثبت‌کننده، انباردار یا مدیر پروژه می‌تواند درخواست اصلاح بدهد.')
     }
     if (!hasPermission(user.role, 'entry.correction.request')) {
       throw new ApiError(403, 'FORBIDDEN', 'شما اجازه ارسال درخواست اصلاح را ندارید.')

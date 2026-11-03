@@ -16,10 +16,10 @@ import {
   computeEditDeadline,
   isLocked,
 } from '@/lib/entry-rules'
-import { ENTRY_STAGE_LABELS } from '@/lib/permissions'
+import { ENTRY_STAGE_LABELS, ENTRY_DIRECTIONS } from '@/lib/permissions'
 import { dispatchForNotificationRow } from '@/lib/notify-channels'
-import { notifyUsers } from '@/lib/notify'
-import { applyEntryStockIn } from '@/lib/inventory'
+import { notifyUsers, type DailyNotificationType } from '@/lib/notify'
+import { applyEntryStock } from '@/lib/inventory'
 
 // ─────────────────────────── تاریخچهٔ مراحل (Stage Log) ───────────────────────────
 
@@ -64,7 +64,7 @@ export async function startTechReview(entry: MaterialEntry, user: SessionUser, i
   })
   await logStage({ entryId: entry.id, stage: 'TECH_REVIEW', action: 'TECH_REVIEW_START', actorId: user.id })
   await writeAudit({ user, action: 'TECH_REVIEW_START', entityType: 'MaterialEntry', entityId: entry.id, oldValue: { status: entry.status }, newValue: { status: 'TECH_REVIEW' }, ip, userAgent: ua })
-  await notifyUser(entry.supervisorId, 'ENTRY_STAGE', 'بررسی فنی آغاز شد', `بررسی فنی ثبت «${ENTRY_STAGE_LABELS.TECH_REVIEW}» در جریان است.`, entry.id)
+  await notifyEntryStakeholders(entry, 'ENTRY_STAGE', 'بررسی فنی آغاز شد', `بررسی فنی ${directionLabel(entry.direction)} شمارهٔ ${entry.entryNumber} در جریان است.`, user.id)
   return updated
 }
 
@@ -85,7 +85,7 @@ export async function completeTechReview(entry: MaterialEntry, user: SessionUser
   })
   await logStage({ entryId: entry.id, stage: 'TECH_REVIEWED', action: 'TECH_REVIEW_COMPLETE', actorId: user.id, note })
   await writeAudit({ user, action: 'TECH_REVIEW_COMPLETE', entityType: 'MaterialEntry', entityId: entry.id, oldValue: { status: entry.status }, newValue: { status: 'TECH_REVIEWED' }, reason: note, ip, userAgent: ua })
-  await notifyManagersOfEntry(entry, 'بررسی فنی انجام شد', 'ناظر بررسی فنی را کامل کرد؛ ثبت آمادهٔ تأیید شماست.', 'ENTRY_TECH_REVIEWED')
+  await notifyEntryStakeholders(entry, 'ENTRY_TECH_REVIEWED', 'بررسی فنی انجام شد', `بررسی فنی ${directionLabel(entry.direction)} شمارهٔ ${entry.entryNumber} کامل شد — ثبت آمادهٔ تأیید مدیر است.`, user.id)
   return updated
 }
 
@@ -101,15 +101,16 @@ export async function warehouseConfirm(entry: MaterialEntry, user: SessionUser, 
   })
   await logStage({ entryId: entry.id, stage: 'WAREHOUSE_CONFIRMED', action: 'WAREHOUSE_CONFIRM', actorId: user.id, note })
   await writeAudit({ user, action: 'WAREHOUSE_CONFIRM', entityType: 'MaterialEntry', entityId: entry.id, oldValue: { status: entry.status }, newValue: { status: 'WAREHOUSE_CONFIRMED' }, reason: note, ip, userAgent: ua })
-  await notifyUser(entry.supervisorId, 'ENTRY_STAGE', 'انبار تأیید کرد', 'تأیید انبار انجام شد؛ آمادهٔ تحویل است.', entry.id)
+  await notifyEntryStakeholders(entry, 'ENTRY_STAGE', 'انبار تأیید کرد', `تأیید انبار ${directionLabel(entry.direction)} شمارهٔ ${entry.entryNumber} انجام شد — آمادهٔ تحویل است.`, user.id)
 
-  // ورود خودکار اقلام به موجودی انبار کارگاه — ضدتکرار و ضدخطا (جریان اصلی را شکست نمی‌دهد)
+  // اعمال خودکار اقلام روی موجودی انبار کارگاه — ورود: افزایش، خروج: کاهش.
+  // ضدتکرار (inventoryAppliedAt) و ضدخطا (جریان اصلی را شکست نمی‌دهد).
   try {
     const full = await db.materialEntry.findUnique({
       where: { id: entry.id },
-      select: { id: true, workshopId: true, inventoryAppliedAt: true, items: { select: { materialId: true, materialName: true, quantity: true, unit: true } } },
+      select: { id: true, direction: true, workshopId: true, inventoryAppliedAt: true, items: { select: { materialId: true, materialName: true, quantity: true, unit: true } } },
     })
-    if (full) await applyEntryStockIn(full, user.id)
+    if (full) await applyEntryStock(full, user.id)
   } catch {
     // انبار اختیاری است — هرگز مسیر اصلی را شکست نمی‌دهد
   }
@@ -128,7 +129,7 @@ export async function deliverEntry(entry: MaterialEntry, user: SessionUser, note
   })
   await logStage({ entryId: entry.id, stage: 'DELIVERED', action: 'DELIVER', actorId: user.id, note })
   await writeAudit({ user, action: 'DELIVER', entityType: 'MaterialEntry', entityId: entry.id, oldValue: { status: entry.status }, newValue: { status: 'DELIVERED' }, reason: note, ip, userAgent: ua })
-  await notifyUser(entry.supervisorId, 'ENTRY_STAGE', 'مصالح تحویل شد', 'مصالح به کارگاه تحویل داده شد.', entry.id)
+  await notifyEntryStakeholders(entry, 'ENTRY_STAGE', 'مصالح تحویل شد', `${directionLabel(entry.direction)} شمارهٔ ${entry.entryNumber} تحویل داده شد.`, user.id)
   return updated
 }
 
@@ -144,7 +145,7 @@ export async function closeEntry(entry: MaterialEntry, user: SessionUser, note: 
   })
   await logStage({ entryId: entry.id, stage: 'CLOSED', action: 'CLOSE', actorId: user.id, note })
   await writeAudit({ user, action: 'CLOSE', entityType: 'MaterialEntry', entityId: entry.id, oldValue: { status: entry.status }, newValue: { status: 'CLOSED' }, reason: note, ip, userAgent: ua })
-  await notifyUser(entry.supervisorId, 'ENTRY_STAGE', 'ثبت بسته شد', 'فرایند ثبت با موفقیت کامل و بسته شد.', entry.id)
+  await notifyEntryStakeholders(entry, 'ENTRY_CLOSED', 'ثبت بسته شد', `فرایند ${directionLabel(entry.direction)} شمارهٔ ${entry.entryNumber} با موفقیت کامل و بسته شد.`, user.id)
   return updated
 }
 
@@ -182,7 +183,7 @@ export async function rollbackStage(entry: MaterialEntry, user: SessionUser, rea
   })
   await logStage({ entryId: entry.id, stage: to, action: 'ROLLBACK', actorId: user.id, note: reason })
   await writeAudit({ user, action: 'ROLLBACK', entityType: 'MaterialEntry', entityId: entry.id, oldValue: { status: entry.status }, newValue: { status: to }, reason, ip, userAgent: ua })
-  await notifyUser(entry.supervisorId, 'ENTRY_STAGE', 'ثبت به مرحلهٔ قبل برگشت', `ثبت به مرحلهٔ «${ENTRY_STAGE_LABELS[to] ?? to}» برگشت داده شد.`, entry.id)
+  await notifyEntryStakeholders(entry, 'ENTRY_STAGE', 'ثبت به مرحلهٔ قبل برگشت', `${directionLabel(entry.direction)} شمارهٔ ${entry.entryNumber} به مرحلهٔ «${ENTRY_STAGE_LABELS[to] ?? to}» برگشت داده شد.`, user.id)
   return updated
 }
 
@@ -240,7 +241,7 @@ export function buildSnapshot(
 
 // ─────────────────────────── اعلان‌ها ───────────────────────────
 
-async function notifyManagersOfEntry(entry: { id: string; workshopId: string }, title: string, body: string, type: string) {
+async function notifyManagersOfEntry(entry: { id: string; workshopId: string }, title: string, body: string, type: DailyNotificationType) {
   // مدیرانی که به پروژه‌های این ثبت دسترسی دارند یا عضو کارگاه ثبت‌کننده‌اند
   const projects = await db.materialEntryProject.findMany({ where: { entryId: entry.id }, select: { projectId: true } })
   const projectIds = projects.map((p) => p.projectId)
@@ -265,11 +266,51 @@ async function notifyManagersOfEntry(entry: { id: string; workshopId: string }, 
   void Promise.allSettled(rows.map((r) => dispatchForNotificationRow(r)))
 }
 
-async function notifyUser(userId: string, type: string, title: string, body: string, entityId: string) {
-  const row = await db.notification.create({
-    data: { userId, type, title, body, entityId, entityType: 'MaterialEntry' },
-  }).catch(() => null)
-  if (row) void dispatchForNotificationRow(row)
+/** برچسب جهت ثبت — ورود/خروج در همهٔ پیام‌ها یکسان ظاهر می‌شوند */
+function directionLabel(direction: string): string {
+  return ENTRY_DIRECTIONS[direction as keyof typeof ENTRY_DIRECTIONS] ?? 'ثبت مصالح'
+}
+
+/**
+ * اعلان هم‌زمان یک مرحله به هر سه پنل: سرپرست ثبت‌کننده، انبارداران کارگاه و مدیران پروژه.
+ * کاربری که خودش این مرحله را انجام داده اعلان تکراری نمی‌گیرد.
+ */
+async function notifyEntryStakeholders(
+  entry: { id: string; entryNumber: number; workshopId: string; supervisorId: string },
+  type: DailyNotificationType,
+  title: string,
+  body: string,
+  actorId?: string | null
+): Promise<void> {
+  const userIds = new Set<string>()
+  if (entry.supervisorId) userIds.add(entry.supervisorId)
+  let keepers: Array<{ id: string }> = []
+  try {
+    keepers = await db.user.findMany({
+      where: {
+        isActive: true,
+        role: 'WAREHOUSE_KEEPER',
+        OR: [{ workshopId: entry.workshopId }, { userWorkshops: { some: { workshopId: entry.workshopId } } }],
+      },
+      select: { id: true },
+    })
+  } catch (err) {
+    logger.error('workflow', 'keepers lookup failed', safeErrorMeta(err))
+  }
+  keepers.forEach((k) => userIds.add(k.id))
+  if (actorId) userIds.delete(actorId)
+  if (userIds.size > 0) {
+    await notifyUsers({
+      userIds: Array.from(userIds),
+      type,
+      title,
+      body,
+      entityId: entry.id,
+      entityType: 'MaterialEntry',
+    }).catch((err: unknown) => logger.error('workflow', 'stakeholder notify failed', safeErrorMeta(err)))
+  }
+  // مدیران پروژه — پنل مدیرکل
+  await notifyManagersOfEntry(entry, title, body, type)
 }
 
 // ─────────────────────────── عملیات Workflow ───────────────────────────
@@ -295,7 +336,7 @@ export async function submitEntry(entry: MaterialEntry, user: SessionUser, ip: s
   })
   await writeAudit({ user, action: 'SUBMIT', entityType: 'MaterialEntry', entityId: entry.id, newValue: { status: 'SUBMITTED' }, ip, userAgent: ua })
   await logStage({ entryId: entry.id, stage: 'SUBMITTED', action: 'SUBMIT', actorId: user.id })
-  await notifyManagersOfEntry(entry, 'ثبت جدید دریافت شد', `یک ثبت ورود مصالح جدید برای بررسی ارسال شد.`, 'ENTRY_SUBMITTED')
+  await notifyEntryStakeholders(entry, 'ENTRY_SUBMITTED', 'ثبت جدید دریافت شد', `${directionLabel(entry.direction)} شمارهٔ ${entry.entryNumber} برای بررسی ارسال شد.`, user.id)
   return updated
 }
 
@@ -320,7 +361,7 @@ export async function resubmitEntry(entry: MaterialEntry, user: SessionUser, ip:
   })
   await writeAudit({ user, action: 'RESUBMIT', entityType: 'MaterialEntry', entityId: entry.id, newValue: { status: 'RESUBMITTED' }, ip, userAgent: ua })
   await logStage({ entryId: entry.id, stage: 'RESUBMITTED', action: 'RESUBMIT', actorId: user.id })
-  await notifyManagersOfEntry(entry, 'ثبت اصلاح‌شده دریافت شد', 'سرپرست، ثبت را پس از اصلاح دوباره ارسال کرد.', 'ENTRY_SUBMITTED')
+  await notifyEntryStakeholders(entry, 'ENTRY_SUBMITTED', 'ثبت اصلاح‌شده دریافت شد', `${directionLabel(entry.direction)} شماره-${entry.entryNumber} پس از اصلاح دوباره ارسال شد.`, user.id)
   return updated
 }
 
@@ -340,9 +381,9 @@ export async function reviewEntry(
   const statusMap = { APPROVE: 'APPROVED', REJECT: 'REJECTED', REQUEST_CORRECTION: 'CORRECTION_REQUESTED' } as const
   const auditMap = { APPROVE: 'APPROVE', REJECT: 'REJECT', REQUEST_CORRECTION: 'REQUEST_CORRECTION' } as const
   const notifMap = {
-    APPROVE: ['ثبت شما تأیید شد', 'ثبت ورود مصالح شما توسط مدیر تأیید شد.', 'ENTRY_APPROVED'],
-    REJECT: ['ثبت شما رد شد', reason ?? 'ثبت ورود مصالح شما توسط مدیر رد شد.', 'ENTRY_REJECTED'],
-    REQUEST_CORRECTION: ['نیازمند اصلاح', reason ?? 'مدیر برای ثبت شما اصلاح خواسته است.', 'CORRECTION_REQUESTED'],
+    APPROVE: ['ثبت شما تأیید شد', directionLabel(entry.direction) + ` شمارهٔ ${entry.entryNumber} توسط مدیر تأیید شد.`, 'ENTRY_APPROVED'],
+    REJECT: ['ثبت شما رد شد', reason ?? `${directionLabel(entry.direction)} شمارهٔ ${entry.entryNumber} توسط مدیر رد شد.`, 'ENTRY_REJECTED'],
+    REQUEST_CORRECTION: ['نیازمند اصلاح', reason ?? `مدیر برای ${directionLabel(entry.direction)} شمارهٔ ${entry.entryNumber} اصلاح خواسته است.`, 'CORRECTION_REQUESTED'],
   } as const
 
   const updated = await db.$transaction(async (tx) => {
@@ -356,26 +397,8 @@ export async function reviewEntry(
   })
   await writeAudit({ user, action: auditMap[action], entityType: 'MaterialEntry', entityId: entry.id, oldValue: { status: entry.status }, newValue: { status: statusMap[action] }, reason, ip, userAgent: ua })
   await logStage({ entryId: entry.id, stage: statusMap[action], action: auditMap[action], actorId: user.id, note: reason })
-  await notifyUser(entry.supervisorId, notifMap[action][2], notifMap[action][0], notifMap[action][1], entry.id)
-  // تأیید مدیر → انبارداران همان کارگاه باید بدانند ثبت در انتظار تأیید انبار است
-  if (action === 'APPROVE') {
-    const keepers = await db.user.findMany({
-      where: {
-        isActive: true,
-        role: 'WAREHOUSE_KEEPER',
-        OR: [{ workshopId: entry.workshopId }, { userWorkshops: { some: { workshopId: entry.workshopId } } }],
-      },
-      select: { id: true },
-    })
-    await notifyUsers({
-      userIds: keepers.map((k) => k.id),
-      type: 'ENTRY_APPROVED',
-      title: 'در انتظار تأیید انبار',
-      body: `ثبت شمارهٔ ${entry.entryNumber} توسط مدیر تأیید شد — لطفاً ورود مصالح را در انبار تأیید کنید.`,
-      entityId: entry.id,
-      entityType: 'MaterialEntry',
-    }).catch(() => undefined)
-  }
+  // تصمیم مدیر به هر سه پنل اعلان می‌شود — سرپرست، انبارداران و سایر مدیران
+  await notifyEntryStakeholders(entry, notifMap[action][2], notifMap[action][0], notifMap[action][1], user.id)
   return updated
 }
 
@@ -452,7 +475,7 @@ export async function createCorrectionRequest(
     })
   })
   await writeAudit({ user, action: 'REQUEST_CORRECTION', entityType: 'MaterialEntry', entityId: entry.id, reason, ip, userAgent: ua })
-  await notifyManagersOfEntry(entry, 'درخواست اصلاح جدید', `سرپرست درخواست اصلاح ثبت کرد: ${reason}`, 'NEW_CORRECTION_REQUEST')
+  await notifyEntryStakeholders(entry, 'NEW_CORRECTION_REQUEST', 'درخواست اصلاح جدید', `درخواست اصلاح ${directionLabel(entry.direction)} شمارهٔ ${entry.entryNumber}: ${reason}`, user.id)
   return cr
 }
 
@@ -492,14 +515,14 @@ export async function reviewCorrectionRequest(
     ip,
     userAgent: ua,
   })
-  await notifyUser(
-    cr.requestedById,
+  await notifyEntryStakeholders(
+    { id: cr.entry.id, entryNumber: cr.entry.entryNumber, workshopId: cr.entry.workshopId, supervisorId: cr.requestedById },
     'CORRECTION_APPROVED',
     decision === 'APPROVED' ? 'درخواست اصلاح شما تأیید شد' : 'درخواست اصلاح شما رد شد',
     decision === 'APPROVED'
       ? 'مدیر درخواست اصلاح شما را تأیید کرد. نسخه جدید ثبت ایجاد شد.'
       : responseNote ?? 'مدیر درخواست اصلاح شما را رد کرد.',
-    cr.entryId
+    user.id
   )
   return { correction: updated, entry: cr.entry }
 }

@@ -1,14 +1,16 @@
 "use client"
 
-import { useCallback, useEffect, useState } from 'react'
-import { Loader2, Package, ArrowDownToLine, ArrowUpFromLine, Plus, AlertTriangle, Minus, CheckCircle2, SlidersHorizontal } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Loader2, Package, ArrowDownToLine, ArrowUpFromLine, AlertTriangle, SlidersHorizontal, CheckCircle2, Search, X, CalendarDays } from 'lucide-react'
+import { Drawer } from 'vaul'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { api, ClientApiError, type InventoryStockItem, type InventoryMovementItem, type MasterData } from '@/lib/client'
+import { api, ClientApiError, type InventoryStockItem, type InventoryMovementItem } from '@/lib/client'
 import { useApp } from '@/store/app'
-import { ScreenHeader, EmptyState, ErrorState, ListSkeleton, SelectionSheet } from '@/components/app/shared'
-import { toFa, formatQty, formatRelative } from '@/lib/fa'
+import { ScreenHeader, EmptyState, ErrorState, ListSkeleton } from '@/components/app/shared'
+import { JalaliCalendarSheet } from '@/components/app/jalali-calendar-sheet'
+import { toFa, formatQty, formatRelative, formatJalaliFromISO } from '@/lib/fa'
 import { INVENTORY_REASONS, INVENTORY_DIRECTIONS, DISCREPANCY_KINDS } from '@/lib/permissions'
 import { cn } from '@/lib/utils'
 import { ERROR_MSG } from '@/components/app/messages'
@@ -18,18 +20,7 @@ function toEnDigits(s: string): string {
 }
 
 type Tab = 'stocks' | 'movements' | 'discrepancies'
-type SheetKind = 'workshop-out' | 'material-out' | 'workshop-in' | 'material-in' | 'project-out' | null
 type ManageKind = null | { stock: InventoryStockItem; mode: 'adjust' } | { stock: InventoryStockItem; mode: 'min' }
-
-interface StockDraft {
-  workshopId: string
-  materialName: string
-  materialId: string | null
-  unit: string
-  quantity: string
-  projectId: string
-  note: string
-}
 
 interface DiscrepancyItem {
   id: string
@@ -45,23 +36,34 @@ interface DiscrepancyItem {
   createdAt: string
 }
 
-const emptyDraft: StockDraft = { workshopId: '', materialName: '', materialId: null, unit: '', quantity: '', projectId: '', note: '' }
+const DIR_FILTERS = [
+  { key: 'ALL', label: 'همه' },
+  { key: 'IN', label: 'ورود' },
+  { key: 'OUT', label: 'خروج' },
+] as const
 
 export default function Inventory() {
   const session = useApp((s) => s.session)
   const role = session?.user.role
+  const navigate = useApp((s) => s.navigate)
+
+  // انبارهای قابل‌مشاهدهٔ کاربر — مدیر همهٔ انبارها را تب‌به‌تب می‌بیند (نیازمند ۲)
+  const workshops = session?.workshops ?? []
 
   const [tab, setTab] = useState<Tab>('stocks')
+  const [wsFilter, setWsFilter] = useState<string>(() => (workshops.length === 1 ? workshops[0].id : 'ALL'))
+  const [q, setQ] = useState('')
+  const [dir, setDir] = useState<string>('ALL')
+  const [from, setFrom] = useState<string | null>(null)
+  const [to, setTo] = useState<string | null>(null)
+  const [dateFilterOpen, setDateFilterOpen] = useState(false)
+  const [dateSheet, setDateSheet] = useState<null | 'from' | 'to'>(null)
+
   const [stocks, setStocks] = useState<InventoryStockItem[] | null>(null)
   const [movements, setMovements] = useState<InventoryMovementItem[] | null>(null)
   const [discrepancies, setDiscrepancies] = useState<DiscrepancyItem[] | null>(null)
   const [error, setError] = useState(false)
-  const [md, setMd] = useState<MasterData | null>(null)
 
-  const [issueOpen, setIssueOpen] = useState(false)
-  const [draft, setDraft] = useState<StockDraft>(emptyDraft)
-  const [sheet, setSheet] = useState<SheetKind>(null)
-  const [saving, setSaving] = useState(false)
   const [manage, setManage] = useState<ManageKind>(null)
   const [manageQty, setManageQty] = useState('')
   const [manageNote, setManageNote] = useState('')
@@ -69,13 +71,32 @@ export default function Inventory() {
 
   const canManage = (session?.permissions ?? []).includes('inventory.manage')
 
+  // کاربر تک‌کارگاهی — همان کارگاه به‌صورت پیش‌فرض انتخاب می‌شود
+  useEffect(() => {
+    if (workshops.length === 1 && !workshops.some((w) => w.id === wsFilter)) setWsFilter(workshops[0].id)
+  }, [workshops, wsFilter])
+
+  // فیلترهای انبار: کارگاه + نام مصالح (+ جهت و بازهٔ تاریخ برای گردش‌ها) — نیازمند ۱
   const load = useCallback(async () => {
     setError(false)
+    const wq = wsFilter === 'ALL' ? '' : `workshopId=${encodeURIComponent(wsFilter)}`
+    const qq = q.trim() ? `q=${encodeURIComponent(q.trim())}` : ''
+    const common = [wq, qq].filter(Boolean).join('&')
+    const mvQ = [
+      common,
+      dir === 'ALL' ? '' : `direction=${dir}`,
+      from ? `from=${from}` : '',
+      to ? `to=${to}` : '',
+    ]
+      .filter(Boolean)
+      .join('&')
     try {
       const [s, m, d] = await Promise.all([
-        api.get<{ stocks: InventoryStockItem[] }>('/api/v1/inventory'),
-        api.get<{ movements: InventoryMovementItem[] }>('/api/v1/inventory/movements?pageSize=30'),
-        api.get<{ discrepancies: DiscrepancyItem[] }>('/api/v1/inventory/discrepancies').catch(() => ({ discrepancies: [] as DiscrepancyItem[] })),
+        api.get<{ stocks: InventoryStockItem[] }>(`/api/v1/inventory${common ? `?${common}` : ''}`),
+        api.get<{ movements: InventoryMovementItem[] }>(`/api/v1/inventory/movements?pageSize=50${mvQ ? `&${mvQ}` : ''}`),
+        api
+          .get<{ discrepancies: DiscrepancyItem[] }>(`/api/v1/inventory/discrepancies${common ? `?${common}` : ''}`)
+          .catch(() => ({ discrepancies: [] as DiscrepancyItem[] })),
       ])
       setStocks(s.stocks)
       setMovements(m.movements)
@@ -83,45 +104,23 @@ export default function Inventory() {
     } catch {
       setError(true)
     }
-  }, [])
+  }, [wsFilter, q, dir, from, to])
 
+  // بارگذاری اولیهٔ بی‌درنگ؛ تغییر فیلترها با تأخیر کوتاه (debounce) اجرا می‌شود
+  const firstLoad = useRef(true)
   useEffect(() => {
-    void load()
-    api.get<MasterData>('/api/v1/master').then(setMd).catch(() => undefined)
+    if (firstLoad.current) {
+      firstLoad.current = false
+      void load()
+      return
+    }
+    const t = setTimeout(() => void load(), 300)
+    return () => clearTimeout(t)
   }, [load])
 
   const lowCount = (stocks ?? []).filter((s) => s.isLow).length
-
-  async function submitMovement(direction: 'IN' | 'OUT') {
-    const qty = Number(toEnDigits(draft.quantity).replace(/[^\d.]/g, ''))
-    if (!draft.workshopId || !draft.materialName || !draft.unit || !(qty > 0)) {
-      toast.error('کارگاه، مصالح، واحد و مقدار را کامل کنید.')
-      return
-    }
-    setSaving(true)
-    try {
-      await api.post('/api/v1/inventory/movements', {
-        workshopId: draft.workshopId,
-        materialId: draft.materialId,
-        materialName: draft.materialName,
-        unit: draft.unit,
-        quantity: qty,
-        direction,
-        reason: direction === 'OUT' ? 'ISSUE' : 'RETURN',
-        projectId: draft.projectId || null,
-        note: draft.note.trim() || null,
-      })
-      toast.success(direction === 'OUT' ? 'خروج از انبار ثبت شد.' : 'ورود به انبار ثبت شد.')
-      setIssueOpen(false)
-      setDraft(emptyDraft)
-      await load()
-    } catch (e) {
-      if (e instanceof ClientApiError) toast.error(e.message)
-      else toast.error(ERROR_MSG)
-    } finally {
-      setSaving(false)
-    }
-  }
+  const showWsTabs = workshops.length > 1
+  const hasDateFilter = !!from || !!to
 
   async function submitManage() {
     if (!manage) return
@@ -164,33 +163,57 @@ export default function Inventory() {
     }
   }
 
-  const workshopOptions = (md?.workshops ?? []).map((w) => ({ id: w.id, label: w.name, hint: w.code }))
-  const materialOptions = (md?.materials ?? []).map((m) => ({ id: m.id, label: m.name, hint: m.defaultUnit ?? undefined }))
-  const projectOptions = (md?.projects ?? [])
-    .filter((p) => !draft.workshopId || p.workshopId === null || p.workshopId === draft.workshopId)
-    .map((p) => ({ id: p.id, label: p.name, hint: p.code }))
-
-  function onMaterialSelected(ids: string[]) {
-    const m = (md?.materials ?? []).find((x) => x.id === ids[0])
-    if (m) setDraft((d) => ({ ...d, materialId: m.id, materialName: m.name, unit: m.defaultUnit ?? '' }))
-  }
-
   return (
     <div className="max-w-lg mx-auto min-h-dvh">
       <ScreenHeader
         title="انبار کارگاه"
         subtitle={lowCount > 0 ? `${toFa(lowCount)} قلم کمبود موجودی دارد` : 'موجودی و گردش مصالح'}
-        right={
-          canManage ? (
-            <Button size="sm" className="h-9 gap-1.5" onClick={() => { setDraft({ ...emptyDraft, workshopId: md?.workshops[0]?.id ?? '' }); setIssueOpen(true) }}>
-              <ArrowUpFromLine className="size-4" />
-              ثبت ورود / خروج
-            </Button>
-          ) : null
-        }
       />
 
-      {/* تب‌ها */}
+      {/* ثبت ورود/خروج — جریان یکپارچه (همان مسیر سرپرستان) — نیازمند ۵ و ۷ */}
+      {canManage ? (
+        <div className="px-4 pt-3 grid grid-cols-2 gap-2">
+          <Button
+            variant="outline"
+            className="h-11 border-green-200 text-green-700 hover:bg-green-50"
+            onClick={() => navigate('entry-project-select', { direction: 'IN' })}
+          >
+            <ArrowDownToLine className="size-4" />
+            ثبت ورود مصالح
+          </Button>
+          <Button
+            variant="outline"
+            className="h-11 border-orange-200 text-orange-700 hover:bg-orange-50"
+            onClick={() => navigate('entry-project-select', { direction: 'OUT' })}
+          >
+            <ArrowUpFromLine className="size-4" />
+            ثبت خروج مصالح
+          </Button>
+        </div>
+      ) : null}
+
+      {/* تب‌های انبار — هر انبار محتوای خودش را دارد (نیازمند ۲) */}
+      {showWsTabs ? (
+        <div className="px-4 pt-3">
+          <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+            {[{ id: 'ALL', name: 'همه انبارها' }, ...workshops].map((w) => (
+              <button
+                key={w.id}
+                type="button"
+                onClick={() => setWsFilter(w.id)}
+                className={cn(
+                  'shrink-0 rounded-full border px-3.5 py-1.5 text-xs font-medium min-h-8 transition-colors',
+                  wsFilter === w.id ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-card border-border text-muted-foreground'
+                )}
+              >
+                {w.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {/* تب‌های محتوا */}
       <div className="px-4 pt-3">
         <div className={cn('grid gap-1 rounded-xl bg-secondary p-1', canManage ? 'grid-cols-3' : 'grid-cols-2')}>
           {(
@@ -214,6 +237,65 @@ export default function Inventory() {
           ))}
         </div>
       </div>
+
+      {/* جستجوی نام مصالح (نیازمند ۱) */}
+      <div className="px-4 pt-3 relative">
+        <Search className="size-4 absolute right-7 top-1/2 -translate-y-1/2 text-muted-foreground" />
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="جستجوی نام مصالح…"
+          className="w-full h-11 rounded-xl bg-secondary border-0 pr-10 pl-10 text-sm outline-none"
+          inputMode="search"
+        />
+        {q ? (
+          <button
+            type="button"
+            onClick={() => setQ('')}
+            className="absolute left-7 top-1/2 -translate-y-1/2"
+            aria-label="پاک کردن"
+          >
+            <X className="size-4 text-muted-foreground" />
+          </button>
+        ) : null}
+      </div>
+
+      {/* فیلتر جهت + بازهٔ تاریخ — فقط برای گردش‌ها (نیازمند ۱) */}
+      {tab === 'movements' ? (
+        <div className="px-4 pt-2.5 flex gap-2 overflow-x-auto no-scrollbar">
+          {DIR_FILTERS.map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              onClick={() => setDir(f.key)}
+              className={cn(
+                'shrink-0 rounded-full border px-3.5 py-1.5 text-xs font-medium min-h-8 transition-colors',
+                dir === f.key ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-card border-border text-muted-foreground'
+              )}
+            >
+              {f.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setDateFilterOpen(true)}
+            className={cn(
+              'shrink-0 rounded-full border px-3.5 py-1.5 text-xs font-medium min-h-8 transition-colors inline-flex items-center gap-1.5',
+              hasDateFilter ? 'bg-accent text-accent-foreground border-accent' : 'bg-card border-border text-muted-foreground'
+            )}
+            aria-label="فیلتر تاریخ"
+          >
+            <CalendarDays className="size-3.5" />
+            {hasDateFilter
+              ? from && to
+                ? `${formatJalaliFromISO(from)} تا ${formatJalaliFromISO(to)}`
+                : from
+                  ? `از ${formatJalaliFromISO(from)}`
+                  : `تا ${formatJalaliFromISO(to)}`
+              : 'تاریخ'}
+          </button>
+        </div>
+      ) : null}
 
       <div className="p-4">
         {error && tab === 'stocks' ? (
@@ -347,75 +429,79 @@ export default function Inventory() {
         )}
       </div>
 
-      {/* فرم ثبت ورود/خروج دستی */}
-      {issueOpen ? (
-        <div className="fixed inset-0 z-50 flex items-end" onClick={() => setIssueOpen(false)}>
-          <div className="absolute inset-0 bg-black/50" />
-          <div
-            className="relative w-full max-w-lg mx-auto rounded-t-2xl bg-card p-5 max-h-[92dvh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="font-semibold mb-4">ثبت گردش انبار</h3>
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-2.5">
-                <button type="button" onClick={() => setSheet('workshop-out')} className="rounded-xl border border-border bg-card p-3 text-right min-h-14">
-                  <span className="block text-[11px] text-muted-foreground mb-1">کارگاه</span>
-                  <span className="block text-sm font-medium truncate">{md?.workshops.find((w) => w.id === draft.workshopId)?.name ?? 'انتخاب کنید'}</span>
-                </button>
-                <button type="button" onClick={() => setSheet('material-out')} className="rounded-xl border border-border bg-card p-3 text-right min-h-14">
-                  <span className="block text-[11px] text-muted-foreground mb-1">مصالح</span>
-                  <span className="block text-sm font-medium truncate">{draft.materialName || 'انتخاب کنید'}</span>
-                </button>
-              </div>
-              <button type="button" onClick={() => setSheet('project-out')} className="w-full rounded-xl border border-border bg-card p-3 text-right min-h-14">
-                <span className="block text-[11px] text-muted-foreground mb-1">پروژه (اختیاری)</span>
-                <span className="block text-sm font-medium truncate">
-                  {md?.projects.find((p) => p.id === draft.projectId)?.name ?? 'انتخاب کنید'}
+      {/* شیت فیلتر تاریخ گردش‌ها */}
+      <Drawer.Root open={dateFilterOpen} onOpenChange={setDateFilterOpen}>
+        <Drawer.Portal>
+          <Drawer.Overlay className="fixed inset-0 bg-black/40 z-50" />
+          <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 rounded-t-2xl bg-card outline-none">
+            <Drawer.Handle className="mx-auto mt-3 h-1.5 w-12 rounded-full bg-zinc-300" />
+            <Drawer.Title className="font-semibold px-5 pt-3">فیلتر بازهٔ تاریخ</Drawer.Title>
+            <p className="text-xs text-muted-foreground px-5 pb-3">تقویم شمسی — بازهٔ گردش انبار را انتخاب کنید</p>
+
+            <div className="px-4 space-y-2 pb-2">
+              <button
+                type="button"
+                onClick={() => setDateSheet('from')}
+                className="w-full flex items-center justify-between rounded-xl border border-border bg-secondary/50 px-4 py-3 min-h-12 text-right"
+              >
+                <span className="text-xs text-muted-foreground">از تاریخ</span>
+                <span className="text-sm font-medium flex items-center gap-2">
+                  {from ? formatJalaliFromISO(from) : <span className="text-muted-foreground">انتخاب…</span>}
+                  <CalendarDays className="size-4 text-accent" />
                 </span>
               </button>
-              <div className="grid grid-cols-2 gap-2.5">
-                <Input
-                  value={draft.quantity}
-                  onChange={(e) => setDraft({ ...draft, quantity: e.target.value })}
-                  placeholder="مقدار"
-                  className="h-11 numeric-input bg-secondary/60"
-                  inputMode="decimal"
-                />
-                <div className="rounded-xl border border-border bg-secondary/60 px-3 flex items-center text-sm min-h-11">
-                  {draft.unit || 'واحد'}
-                </div>
-              </div>
-              <Input
-                value={draft.note}
-                onChange={(e) => setDraft({ ...draft, note: e.target.value })}
-                placeholder="توضیح (اختیاری) — مثلاً مصرف سقف طبقهٔ دوم"
-                className="h-11 bg-secondary/60"
-                maxLength={300}
-              />
-              <div className="grid grid-cols-2 gap-2.5 pt-1">
-                <Button
-                  variant="outline"
-                  className="h-12 border-orange-200 text-orange-700 hover:bg-orange-50"
-                  onClick={() => void submitMovement('OUT')}
-                  disabled={saving}
-                >
-                  {saving ? <Loader2 className="size-4 animate-spin" /> : <Minus className="size-4" />}
-                  خروج (مصرف)
-                </Button>
-                <Button
-                  variant="outline"
-                  className="h-12 border-green-200 text-green-700 hover:bg-green-50"
-                  onClick={() => void submitMovement('IN')}
-                  disabled={saving}
-                >
-                  {saving ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
-                  ورود / برگشت
-                </Button>
-              </div>
+              <button
+                type="button"
+                onClick={() => setDateSheet('to')}
+                className="w-full flex items-center justify-between rounded-xl border border-border bg-secondary/50 px-4 py-3 min-h-12 text-right"
+              >
+                <span className="text-xs text-muted-foreground">تا تاریخ</span>
+                <span className="text-sm font-medium flex items-center gap-2">
+                  {to ? formatJalaliFromISO(to) : <span className="text-muted-foreground">انتخاب…</span>}
+                  <CalendarDays className="size-4 text-accent" />
+                </span>
+              </button>
+              {from && to && from > to ? (
+                <p className="text-xs text-red-600">«از تاریخ» باید قبل یا هم‌روزِ «تا تاریخ» باشد.</p>
+              ) : null}
             </div>
-          </div>
-        </div>
-      ) : null}
+
+            <div className="safe-top px-5 pb-3 pt-2 border-t border-border flex gap-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  setFrom(null)
+                  setTo(null)
+                  setDateFilterOpen(false)
+                }}
+              >
+                پاک کردن
+              </Button>
+              <Button className="flex-1" onClick={() => setDateFilterOpen(false)}>
+                اعمال فیلتر
+              </Button>
+            </div>
+          </Drawer.Content>
+        </Drawer.Portal>
+      </Drawer.Root>
+
+      <JalaliCalendarSheet
+        open={dateSheet === 'from'}
+        onOpenChange={(o) => !o && setDateSheet(null)}
+        value={from}
+        onSelect={(iso) => setFrom(iso)}
+        title="از تاریخ"
+        disableFuture
+      />
+      <JalaliCalendarSheet
+        open={dateSheet === 'to'}
+        onOpenChange={(o) => !o && setDateSheet(null)}
+        value={to}
+        onSelect={(iso) => setTo(iso)}
+        title="تا تاریخ"
+        disableFuture
+      />
 
       {/* شیت تعدیل موجودی / حداقل */}
       {manage ? (
@@ -476,31 +562,6 @@ export default function Inventory() {
           </div>
         </div>
       ) : null}
-
-      <SelectionSheet
-        open={sheet === 'workshop-out'}
-        onOpenChange={(v) => setSheet(v ? 'workshop-out' : null)}
-        title="انتخاب کارگاه"
-        options={workshopOptions}
-        selected={[draft.workshopId]}
-        onConfirm={(ids) => setDraft((d) => ({ ...d, workshopId: ids[0] ?? '', projectId: '' }))}
-      />
-      <SelectionSheet
-        open={sheet === 'material-out'}
-        onOpenChange={(v) => setSheet(v ? 'material-out' : null)}
-        title="انتخاب مصالح"
-        options={materialOptions}
-        selected={draft.materialId ? [draft.materialId] : []}
-        onConfirm={onMaterialSelected}
-      />
-      <SelectionSheet
-        open={sheet === 'project-out'}
-        onOpenChange={(v) => setSheet(v ? 'project-out' : null)}
-        title="انتخاب پروژه"
-        options={projectOptions}
-        selected={draft.projectId ? [draft.projectId] : []}
-        onConfirm={(ids) => setDraft((d) => ({ ...d, projectId: ids[0] ?? '' }))}
-      />
     </div>
   )
 }
