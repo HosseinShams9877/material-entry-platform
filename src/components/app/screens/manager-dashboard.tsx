@@ -6,7 +6,7 @@ import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContai
 import { api, type DashboardManager } from '@/lib/client'
 import { useApp } from '@/store/app'
 import { StatCard, ListSkeleton, StatusBadge, TypeBadge } from '@/components/app/shared'
-import { ENTRY_TYPES, ROLES } from '@/lib/permissions'
+import { entryTypeLabel, ROLES } from '@/lib/permissions'
 import { formatRelative, formatQty, toFa, formatJalaliFromISO } from '@/lib/fa'
 import { Button } from '@/components/ui/button'
 import { ERROR_MSG } from '@/components/app/messages'
@@ -177,7 +177,7 @@ export default function ManagerDashboard() {
                   {e.itemsCount > 1 ? ` + ${toFa(e.itemsCount - 1)}` : ''}
                 </p>
                 <div className="flex items-center gap-2 mt-1.5 flex-wrap text-[11px] text-muted-foreground">
-                  <TypeBadge type={e.type} />
+                  <TypeBadge type={e.type} direction={e.direction} />
                   <span>{e.supervisorName}</span>
                   {e.projects.slice(0, 1).map((p) => (
                     <span key={p}>{p}</span>
@@ -262,8 +262,8 @@ export default function ManagerDashboard() {
                 data.byType.map((t) => {
                   const max = Math.max(...data.byType.map((x) => x.count))
                   return (
-                    <div key={t.type} className="flex items-center gap-3">
-                      <span className="text-xs w-28 shrink-0 truncate">{ENTRY_TYPES[t.type as keyof typeof ENTRY_TYPES] ?? t.type}</span>
+                    <div key={`${t.direction}-${t.type}`} className="flex items-center gap-3">
+                      <span className="text-xs w-28 shrink-0 truncate">{entryTypeLabel(t.type, t.direction)}</span>
                       <div className="flex-1 h-2.5 bg-secondary rounded-full overflow-hidden">
                         <div className="h-full bg-accent rounded-full" style={{ width: `${(t.count / max) * 100}%` }} />
                       </div>

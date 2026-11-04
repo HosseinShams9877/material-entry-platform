@@ -13,7 +13,7 @@ import { api, ClientApiError, type MasterData, type EntryDetailData } from '@/li
 import { useApp } from '@/store/app'
 import { SelectionSheet, ScreenHeader } from '@/components/app/shared'
 import { JalaliCalendarSheet } from '@/components/app/jalali-calendar-sheet'
-import { ENTRY_TYPES, ENTRY_DIRECTIONS, SOURCE_TYPES, WORKER_KINDS, type EntryTypeKey, type EntryDirectionKey } from '@/lib/permissions'
+import { ENTRY_TYPES, ENTRY_DIRECTIONS, SOURCE_TYPES, WORKER_KINDS, entryTypeLabel, type EntryTypeKey, type EntryDirectionKey } from '@/lib/permissions'
 import { toFa, toEnDigits, formatJalaliFromISO, todayISO } from '@/lib/fa'
 
 export interface DraftItem {
@@ -289,7 +289,7 @@ export function EntryDraftForm({
         {/* نوع ورود */}
         <Section icon={<ClipboardType className="size-4" />} label={isOut ? 'نوع خروج' : 'نوع ورود'} required missing={hl('type')}>
           <div className="grid grid-cols-2 gap-2">
-            {Object.entries(ENTRY_TYPES).map(([key, label]) => (
+            {Object.entries(ENTRY_TYPES).map(([key]) => (
               <button
                 key={key}
                 type="button"
@@ -302,7 +302,7 @@ export function EntryDraftForm({
                   v.type === key ? 'bg-accent text-accent-foreground border-accent' : 'bg-card border-border'
                 }`}
               >
-                {label}
+                {entryTypeLabel(key, v.direction)}
               </button>
             ))}
           </div>

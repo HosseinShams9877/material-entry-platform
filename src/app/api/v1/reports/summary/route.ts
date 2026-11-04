@@ -13,7 +13,8 @@ export const GET = apiHandler(async ({ user }) => {
   const baseWhere = entryScopeFilter(scope)
 
   const [byType, byMaterial, bySupplier, byProject, totals] = await Promise.all([
-    db.materialEntry.groupBy({ by: ['type'], where: baseWhere, _count: { _all: true } }),
+    // گروه‌بندی بر اساس نوع و جهت — جهت برای برچسب جهت‌دار نوع لازم است (خرید در خروج = فروش)
+    db.materialEntry.groupBy({ by: ['type', 'direction'], where: baseWhere, _count: { _all: true } }),
     db.materialEntryItem.groupBy({
       by: ['materialName', 'unit'],
       where: { entry: baseWhere },
@@ -39,7 +40,7 @@ export const GET = apiHandler(async ({ user }) => {
 
   return ok({
     totals: { entries: totals[0], transfers: totals[1], loans: totals[2], returns: totals[3] },
-    byType: byType.map((t) => ({ type: t.type, count: t._count._all })),
+    byType: byType.map((t) => ({ type: t.type, direction: t.direction, count: t._count._all })),
     byMaterial: byMaterial
       .map((m) => ({ materialName: m.materialName, unit: m.unit, totalQuantity: m._sum.quantity ?? 0, entries: m._count._all }))
       .sort((a, b) => b.entries - a.entries)

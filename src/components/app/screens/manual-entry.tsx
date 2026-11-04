@@ -1,7 +1,7 @@
 "use client"
 
 import { EntryDraftForm, emptyDraft, type DraftFormValue } from '@/components/app/entry-draft-form'
-import { ENTRY_TYPES, ENTRY_DIRECTIONS, type EntryTypeKey, type EntryDirectionKey } from '@/lib/permissions'
+import { entryTypeLabel, ENTRY_DIRECTIONS, type EntryTypeKey, type EntryDirectionKey } from '@/lib/permissions'
 
 /** ثبت دستی — فرم کوتاه با نوع ورود از پیش انتخاب‌شده (یا حالت ویرایش)
  *  جریان یکپارچه: جهت (ورود/خروج) و پروژهٔ قفل‌شده از گازهای قبل دریافت می‌شود. */
@@ -28,7 +28,7 @@ export default function ManualEntry({ params }: { params?: Record<string, unknow
     <EntryDraftForm
       initial={initial}
       lockProjectId={lockProjectId}
-      title={`${ENTRY_DIRECTIONS[direction]} — ${ENTRY_TYPES[type]}`}
+      title={`${ENTRY_DIRECTIONS[direction]} — ${entryTypeLabel(type, direction)}`}
       subtitle="فرم کوتاه — کمتر از ۳۰ ثانیه"
     />
   )

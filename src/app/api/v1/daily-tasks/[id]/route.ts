@@ -6,6 +6,7 @@ import { writeAudit } from '@/lib/audit'
 import { canAccessTask, progressPercent, taskDetailInclude, tehranDayStart } from '@/lib/daily'
 import { notifyUsers } from '@/lib/notify'
 import { hasPermission } from '@/lib/permissions'
+import { publicFileUrl } from '@/lib/upload'
 
 // ─────────────────────────── GET /api/v1/daily-tasks/[id] — جزئیات وظیفه ───────────────────────────
 
@@ -93,7 +94,8 @@ export const GET = apiHandler(
             size: p.size,
             createdAt: p.createdAt.toISOString(),
             uploadedByName: p.uploadedBy?.fullName ?? '—',
-            url: `/api/v1/daily-photos/${p.id}/file`,
+            // عکس‌های جدید از public/uploads/daily-tasks سرو می‌شوند؛ قدیمی‌ها via API خصوصی
+            url: publicFileUrl(p.storagePath) ?? `/api/v1/daily-photos/${p.id}/file`,
           })),
         })),
         comments: task.comments.map((c) => ({

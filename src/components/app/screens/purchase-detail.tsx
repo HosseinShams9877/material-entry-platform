@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Loader2, CheckCircle2, XCircle, PackageCheck, ShoppingBag, Trash2, Pencil, FileText, CalendarDays, Upload } from 'lucide-react'
+import { Loader2, CheckCircle2, XCircle, PackageCheck, ShoppingBag, Trash2, Pencil, FileText, CalendarDays, Upload, Eye } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,6 +13,7 @@ import { JalaliCalendarSheet } from '@/components/app/jalali-calendar-sheet'
 import { formatJalaliFromISO, formatJalaliTehran, formatRelative, formatQty, toFa, todayISO } from '@/lib/fa'
 import { cn } from '@/lib/utils'
 import { ERROR_MSG } from '@/components/app/messages'
+import { useImageViewer } from '@/components/app/image-viewer'
 
 function toEnDigits(s: string): string {
   return s.replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
@@ -42,6 +43,7 @@ export default function PurchaseDetail({ params }: { params?: Record<string, unk
   const [dueDate, setDueDate] = useState('')
   const [paymentTerms, setPaymentTerms] = useState('')
   const invoiceInputRef = useRef<HTMLInputElement | null>(null)
+  const imageViewer = useImageViewer()
 
   const load = useCallback(async () => {
     try {
@@ -252,11 +254,19 @@ export default function PurchaseDetail({ params }: { params?: Record<string, unk
 
         {/* فاکتور خرید */}
         {request.hasInvoice ? (
-          <a
-            href={request.invoiceUrl ?? '#'}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-3 rounded-xl border border-border bg-card p-3.5 active:scale-[0.99] transition-transform"
+          <button
+            type="button"
+            onClick={() =>
+              imageViewer.open([
+                {
+                  id: request.id,
+                  url: request.invoiceUrl ?? '#',
+                  fileName: request.invoiceFileName ?? 'فاکتور خرید',
+                  mimeType: request.invoiceMimeType ?? undefined,
+                },
+              ])
+            }
+            className="w-full flex items-center gap-3 rounded-xl border border-border bg-card p-3.5 active:scale-[0.99] transition-transform"
           >
             <span className="size-10 rounded-xl bg-secondary flex items-center justify-center shrink-0">
               <FileText className="size-5 text-accent" />
@@ -267,7 +277,11 @@ export default function PurchaseDetail({ params }: { params?: Record<string, unk
                 تصویر فاکتور — {request.invoiceSize ? `${toFa(Math.max(1, Math.round(request.invoiceSize / 1024)))} کیلوبایت` : 'پیوست'}
               </span>
             </span>
-          </a>
+            <span className="text-[11px] text-accent flex items-center gap-1 shrink-0">
+              <Eye className="size-3.5" />
+              مشاهده
+            </span>
+          </button>
         ) : null}
 
         {/* ردپای گردش کار */}
@@ -463,6 +477,8 @@ export default function PurchaseDetail({ params }: { params?: Record<string, unk
         value={dueDate || todayISO()}
         onSelect={(iso) => setDueDate(iso)}
       />
+
+      {imageViewer.viewer}
     </div>
   )
 }

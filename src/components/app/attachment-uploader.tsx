@@ -1,12 +1,13 @@
 "use client"
 
 import { useRef, useState } from 'react'
-import { Camera, Paperclip, FileText, Image as ImageIcon, Trash2, Loader2 } from 'lucide-react'
+import { Camera, Paperclip, FileText, Image as ImageIcon, Trash2, Loader2, Eye } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, ClientApiError } from '@/lib/client'
 import { ATTACHMENT_KINDS } from '@/lib/permissions'
 import { formatQty } from '@/lib/fa'
 import { SelectionSheet } from '@/components/app/shared'
+import { useImageViewer } from '@/components/app/image-viewer'
 
 export interface UploadedAttachment {
   id: string
@@ -41,6 +42,7 @@ export function AttachmentUploader({
   const [pendingFile, setPendingFile] = useState<File | null>(null)
   const [kindOpen, setKindOpen] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const { open, viewer } = useImageViewer()
 
   function pickFile(f: File | null) {
     if (!f) return
@@ -147,14 +149,29 @@ export function AttachmentUploader({
                   {ATTACHMENT_KINDS[a.kind as keyof typeof ATTACHMENT_KINDS] ?? a.kind} · {formatQty(a.size / 1024)} کیلوبایت
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => removeFile(a.id)}
-                className="size-9 rounded-lg flex items-center justify-center text-red-500 hover:bg-red-50"
-                aria-label="حذف"
-              >
-                <Trash2 className="size-4" />
-              </button>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() =>
+                    open(
+                      attachments.map((x) => ({ id: x.id, url: x.url, fileName: x.fileName, mimeType: x.mimeType })),
+                      attachments.findIndex((x) => x.id === a.id)
+                    )
+                  }
+                  className="size-9 rounded-lg flex items-center justify-center text-accent hover:bg-accent/10"
+                  aria-label="مشاهده پیوست"
+                >
+                  <Eye className="size-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeFile(a.id)}
+                  className="size-9 rounded-lg flex items-center justify-center text-red-500 hover:bg-red-50"
+                  aria-label="حذف"
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -169,6 +186,8 @@ export function AttachmentUploader({
         selected={[]}
         onConfirm={(ids) => void uploadWithKind(ids[0] ?? 'OTHER')}
       />
+
+      {viewer}
     </div>
   )
 }

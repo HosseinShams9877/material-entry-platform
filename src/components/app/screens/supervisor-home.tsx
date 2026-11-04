@@ -351,7 +351,7 @@ export default function SupervisorHome() {
                   {e.itemsCount > 1 ? ` + ${toFa(e.itemsCount - 1)} قلم دیگر` : ''}
                 </p>
                 <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                  <TypeBadge type={e.type} />
+                  <TypeBadge type={e.type} direction={e.direction} />
                   {e.projects.slice(0, 2).map((p) => (
                     <span key={p} className="text-[11px] text-muted-foreground">
                       {p}

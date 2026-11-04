@@ -3,14 +3,14 @@
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/client'
 import { ScreenHeader, ListSkeleton, ErrorState } from '@/components/app/shared'
-import { ENTRY_TYPES } from '@/lib/permissions'
+import { entryTypeLabel, ENTRY_DIRECTIONS } from '@/lib/permissions'
 import { formatQty, toFa } from '@/lib/fa'
 import { ERROR_MSG } from '@/components/app/messages'
 import { ArrowLeftRight, HandCoins, Undo2, PackageCheck } from 'lucide-react'
 
 interface SummaryData {
   totals: { entries: number; transfers: number; loans: number; returns: number }
-  byType: Array<{ type: string; count: number }>
+  byType: Array<{ type: string; direction: string; count: number }>
   byMaterial: Array<{ materialName: string; unit: string; totalQuantity: number; entries: number }>
   bySupplier: Array<{ name: string; count: number }>
   byProject: Array<{ name: string; count: number }>
@@ -136,8 +136,10 @@ export default function Reports() {
               <h3 className="text-sm font-semibold mb-3">بر اساس نوع ورود</h3>
               <div className="flex flex-wrap gap-2">
                 {data.byType.map((t) => (
-                  <span key={t.type} className="rounded-full bg-secondary px-3 py-1.5 text-xs">
-                    {ENTRY_TYPES[t.type as keyof typeof ENTRY_TYPES] ?? t.type}: <b className="numeric-input">{toFa(t.count)}</b>
+                  <span key={`${t.direction}-${t.type}`} className="rounded-full bg-secondary px-3 py-1.5 text-xs">
+                    {entryTypeLabel(t.type, t.direction)}{' '}
+                    <span className="text-muted-foreground">({ENTRY_DIRECTIONS[t.direction as keyof typeof ENTRY_DIRECTIONS] ?? t.direction})</span>:{' '}
+                    <b className="numeric-input">{toFa(t.count)}</b>
                   </span>
                 ))}
               </div>

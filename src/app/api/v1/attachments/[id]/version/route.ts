@@ -3,7 +3,10 @@ import { apiHandler, ok, ApiError } from '@/lib/api'
 import { resolveAttachmentAccess } from '@/lib/scope'
 import { writeAudit } from '@/lib/audit'
 import { makeSignedFileUrl } from '@/lib/signed-url'
-import { validateAndProcess, storeAttachmentFile, removeStoredFile, UploadValidationError, MAX_UPLOAD_SIZE } from '@/lib/upload'
+import {
+  validateAndProcess, storeAttachmentFile, removeStoredFile, publicFileUrl,
+  UploadValidationError, MAX_UPLOAD_SIZE,
+} from '@/lib/upload'
 import { activeStorageProvider } from '@/lib/storage'
 import { logger, safeErrorMeta } from '@/lib/logger'
 
@@ -56,7 +59,19 @@ export const POST = apiHandler(
       throw new ApiError(422, 'INVALID_UPLOAD', 'فایل قابل پذیرش نیست.')
     }
 
-    const stored = await storeAttachmentFile(processed, file.name || parent.fileName)
+    // نسخهٔ جدید در همان زیرپوشهٔ بخشی که نسخهٔ اصلی ذخیره شده می‌رود
+    const section =
+      parent.entityType === 'WORK_REPORT'
+        ? ('work-reports' as const)
+        : parent.entityType === 'STATEMENT'
+          ? ('statements' as const)
+          : ((await db.materialEntry.findUnique({
+              where: { id: parentEntityId },
+              select: { direction: true },
+            }))?.direction === 'OUT'
+              ? 'material-exits'
+              : 'material-entries')
+    const stored = await storeAttachmentFile(processed, file.name || parent.fileName, section)
 
     try {
       const latest = await db.attachment.findFirst({
@@ -99,7 +114,7 @@ export const POST = apiHandler(
           replaces: parent.id,
           fileName: created.fileName,
           size: created.size,
-          url: makeSignedFileUrl(created.id),
+          url: publicFileUrl(stored.storagePath) ?? makeSignedFileUrl(created.id),
         },
         { status: 201 }
       )

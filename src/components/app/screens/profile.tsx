@@ -86,7 +86,8 @@ export default function ProfileScreen() {
   if (isManager || isAdmin) {
     menuItems.push({ label: 'گزارش‌ها', icon: <FileBarChart className="size-5" />, onClick: () => navigate('reports') })
   }
-  if (isManager || isAdmin || role === 'WAREHOUSE_KEEPER' || isSupervisor) {
+  // حسابرسی فقط برای مدیر، ادمین و ناظر — انباردار به این بخش دسترسی ندارد (نیازمند ۲)
+  if (isManager || isAdmin || isSupervisor) {
     menuItems.push(
       { label: 'حسابرسی', icon: <ClipboardList className="size-5" />, onClick: () => navigate('audit-logs') }
     )

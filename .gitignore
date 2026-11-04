@@ -37,6 +37,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# Public runtime uploads — هر بخش زیرپوشهٔ خودش (نگاشت بخش‌ها در src/lib/upload.ts)
+/public/uploads/
+
 
 # typescript
 *.tsbuildinfo

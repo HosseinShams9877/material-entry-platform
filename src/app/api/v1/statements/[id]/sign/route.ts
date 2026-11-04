@@ -4,7 +4,7 @@ import { apiHandler, ok, ApiError } from '@/lib/api'
 import { writeAudit } from '@/lib/audit'
 import { signStatementSchema } from '@/lib/validate'
 import { notifyUsers } from '@/lib/notify'
-import { ensureUploadDir, resolveStoragePath, removeStoredFile } from '@/lib/upload'
+import { ensureSectionDir, resolveStoragePath, removeStoredFile } from '@/lib/upload'
 import { logger, safeErrorMeta } from '@/lib/logger'
 import sharp from 'sharp'
 
@@ -54,9 +54,11 @@ export const POST = apiHandler(
       throw new ApiError(422, 'INVALID_SIGNATURE', 'تصویر امضا قابل پردازش نیست.')
     }
 
-    await ensureUploadDir()
+    // تصویر امضا در زیرپوشهٔ بخش صورت‌وضعیت‌ها: public/uploads/statements
+    await ensureSectionDir('statements')
     const storageName = `sig-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}.png`
-    const absolute = resolveStoragePath(storageName)
+    const storagePath = `statements/${storageName}`
+    const absolute = resolveStoragePath(storagePath)
     await writeFile(absolute, processed)
 
     // در صورت شکست ثبت در DB — فایل حذف می‌شود (بدون فایل یتیم)
@@ -69,7 +71,7 @@ export const POST = apiHandler(
           signedById: user.id,
           signedAt: now,
           signerName: user.fullName,
-          signaturePath: storageName,
+          signaturePath: storagePath,
         },
       })
 
@@ -99,7 +101,7 @@ export const POST = apiHandler(
 
       return ok({ status: 'SIGNED', signedAt: now.toISOString() })
     } catch (err) {
-      await removeStoredFile(storageName)
+      await removeStoredFile(storagePath)
       logger.error('statement-sign', 'failed to persist signature', safeErrorMeta(err))
       throw new ApiError(500, 'SIGN_SAVE_FAILED', 'ذخیرهٔ امضا انجام نشد. دوباره تلاش کنید.')
     }

@@ -213,7 +213,7 @@ export default function EntryHistory({ params }: { params?: Record<string, unkno
               </p>
               <div className="flex items-center gap-2 mt-2 flex-wrap text-[11px] text-muted-foreground">
                 <DirectionBadge direction={e.direction} />
-                <TypeBadge type={e.type} />
+                <TypeBadge type={e.type} direction={e.direction} />
                 {e.source ? <span>از {e.source}</span> : null}
                 {e.projects.map((p) => (
                   <span key={p.id}>{p.name}</span>

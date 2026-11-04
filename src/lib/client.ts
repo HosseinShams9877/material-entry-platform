@@ -154,7 +154,7 @@ export interface EntryDetailData {
     }>
     projects: Array<{ project: { id: string; name: string; code: string } }>
     workers: Array<{ id: string; workerId: string | null; workerName: string; workerKind: string; role: string | null }>
-    attachments: Array<{ id: string; kind: string; fileName: string; mimeType: string; size: number; version: number; replacedById: string | null; createdAt: string; uploadedBy?: { fullName: string } }>
+    attachments: Array<{ id: string; kind: string; fileName: string; mimeType: string; size: number; storagePath?: string | null; url?: string; version: number; replacedById: string | null; createdAt: string; uploadedBy?: { fullName: string } }>
     versions: Array<{ id: string; version: number; snapshotJson: string; changeReason: string | null; createdAt: string; changedBy: { fullName: string } }>
     corrections: Array<{ id: string; reason: string; status: string; responseNote: string | null; createdAt: string; requestedBy: { fullName: string } }>
     approvals: Array<{ id: string; action: string; reason: string | null; decidedAt: string; decidedBy: { fullName: string } }>
@@ -182,6 +182,7 @@ export interface DashboardSupervisor {
     entryNumber: number
     status: string
     type: string
+    direction: string
     supervisorName: string
     projects: string[]
     firstItem: { materialName: string; quantity: number; unit: string } | null
@@ -211,7 +212,7 @@ export interface DashboardManager {
     rejected: number
     avgApprovalMinutes: number | null
   }>
-  byType: Array<{ type: string; count: number }>
+  byType: Array<{ type: string; direction: string; count: number }>
   byProject: Array<{ projectId: string; name: string; count: number }>
   suppliers: Array<{ name: string; count: number }>
   transfers: number
@@ -224,6 +225,7 @@ export interface DashboardManager {
     entryNumber: number
     status: string
     type: string
+    direction: string
     supervisorName: string
     projects: string[]
     firstItem: { materialName: string; quantity: number; unit: string } | null

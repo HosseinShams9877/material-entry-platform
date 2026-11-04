@@ -52,6 +52,7 @@ export const GET = apiHandler(async ({ user }) => {
         entryNumber: e.entryNumber,
         status: e.status,
         type: e.type,
+        direction: e.direction,
         supervisorName: e.supervisor.fullName,
         projects: e.projects.map((p) => p.project.name),
         firstItem: e.items[0] ? { materialName: e.items[0].materialName, quantity: e.items[0].quantity, unit: e.items[0].unit } : null,
@@ -69,7 +70,7 @@ export const GET = apiHandler(async ({ user }) => {
       db.materialEntry.count({ where: { AND: [baseWhere, { status: 'REJECTED' }] } }),
       db.materialEntry.count({ where: { AND: [baseWhere, { status: 'CORRECTION_REQUESTED' }] } }),
       db.materialEntry.count({ where: { AND: [baseWhere, { status: { in: ['APPROVED', 'LOCKED'] } }] } }),
-      db.materialEntry.groupBy({ by: ['type'], where: baseWhere, _count: { _all: true } }),
+      db.materialEntry.groupBy({ by: ['type', 'direction'], where: baseWhere, _count: { _all: true } }),
       db.materialEntryProject.groupBy({
         by: ['projectId'],
         where: { entry: baseWhere },
@@ -234,7 +235,7 @@ export const GET = apiHandler(async ({ user }) => {
     trend,
     byWorkshop,
     supervisorPerformance,
-    byType: byType.map((t) => ({ type: t.type, count: t._count._all })),
+    byType: byType.map((t) => ({ type: t.type, direction: t.direction, count: t._count._all })),
     byProject: byProject.map((p) => ({
       projectId: p.projectId,
       name: projectNames.find((pn) => pn.id === p.projectId)?.name ?? '—',
@@ -254,6 +255,7 @@ export const GET = apiHandler(async ({ user }) => {
       entryNumber: e.entryNumber,
       status: e.status,
       type: e.type,
+      direction: e.direction,
       supervisorName: e.supervisor.fullName,
       projects: e.projects.map((p) => p.project.name),
       firstItem: e.items[0] ? { materialName: e.items[0].materialName, quantity: e.items[0].quantity, unit: e.items[0].unit } : null,

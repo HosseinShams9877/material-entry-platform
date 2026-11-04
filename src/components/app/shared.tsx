@@ -5,7 +5,7 @@ import { Drawer } from 'vaul'
 import { ChevronRight, Search, Check, Inbox, WifiOff, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { STATUS_STYLES, ENTRY_TYPES, ENTRY_DIRECTIONS, TASK_STATUS_STYLES, TASK_PRIORITIES, TASK_PRIORITY_STYLES, REPORT_STATUS_STYLES, type TaskStatusKey, type TaskPriorityKey, type ReportStatusKey } from '@/lib/permissions'
+import { STATUS_STYLES, ENTRY_DIRECTIONS, TASK_STATUS_STYLES, TASK_PRIORITIES, TASK_PRIORITY_STYLES, REPORT_STATUS_STYLES, entryTypeLabel, type TaskStatusKey, type TaskPriorityKey, type ReportStatusKey } from '@/lib/permissions'
 import { toFa } from '@/lib/fa'
 import { useApp } from '@/store/app'
 import { cn } from '@/lib/utils'
@@ -28,10 +28,10 @@ export function StatusBadge({ status, size = 'md' }: { status: string; size?: 's
   )
 }
 
-export function TypeBadge({ type }: { type: string }) {
+export function TypeBadge({ type, direction }: { type: string; direction?: string | null }) {
   return (
     <span className="inline-flex items-center rounded-md bg-secondary px-2 py-0.5 text-[11px] text-secondary-foreground">
-      {ENTRY_TYPES[type as keyof typeof ENTRY_TYPES] ?? type}
+      {entryTypeLabel(type, direction)}
     </span>
   )
 }

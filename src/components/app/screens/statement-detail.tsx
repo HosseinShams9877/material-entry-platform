@@ -10,6 +10,7 @@ import { ScreenHeader } from '@/components/app/shared'
 import { StatementStatusBadge } from './statements'
 import { SignaturePad } from '@/components/app/signature-pad'
 import { AttachmentUploader, type UploadedAttachment } from '@/components/app/attachment-uploader'
+import { useImageViewer } from '@/components/app/image-viewer'
 import { MANAGER_SIGN_THRESHOLD_TOMAN } from '@/lib/permissions'
 import { formatJalaliDateTime, toFa, formatQty } from '@/lib/fa'
 import { ERROR_MSG } from '@/components/app/messages'
@@ -28,6 +29,7 @@ export default function StatementDetail({ params }: { params?: Record<string, un
   const [actionNote, setActionNote] = useState('')
   const [attachments, setAttachments] = useState<UploadedAttachment[]>([])
   const role = useApp((s) => s.session?.user.role)
+  const imageViewer = useImageViewer()
 
   const load = useCallback(async () => {
     try {
@@ -241,8 +243,18 @@ export default function StatementDetail({ params }: { params?: Record<string, un
             <img
               src={statement.signatureUrl}
               alt={`امضای ${statement.signerName ?? 'مدیر پروژه'}`}
-              className="h-28 rounded-xl border border-emerald-200 bg-white"
+              className="h-28 rounded-xl border border-emerald-200 bg-white cursor-zoom-in"
               dir="ltr"
+              onClick={() =>
+                imageViewer.open([
+                  {
+                    id: 'signature',
+                    url: statement.signatureUrl ?? '#',
+                    fileName: 'امضای مدیر پروژه',
+                    mimeType: 'image/png',
+                  },
+                ])
+              }
             />
             <p className="text-[11px] text-emerald-700 mt-2">
               {statement.signerName ?? ''} — {statement.signedAt ? formatJalaliDateTime(statement.signedAt) : ''}
@@ -339,6 +351,8 @@ export default function StatementDetail({ params }: { params?: Record<string, un
       {signOpen ? (
         <SignaturePad open onDone={(d) => void sign(d)} onCancel={() => setSignOpen(false)} busy={busy} />
       ) : null}
+
+      {imageViewer.viewer}
     </div>
   )
 }

@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import {
   CheckCircle2, XCircle, PenLine, SendHorizonal, Wrench, Paperclip,
   History, User, MapPin, FileText, Clock, ArrowLeftRight, GitBranch, Warehouse, Truck,
-  PackageCheck, Undo2, ClipboardCheck, ChevronDown, ChevronUp,
+  PackageCheck, Undo2, ClipboardCheck, ChevronDown, ChevronUp, Eye,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -13,7 +13,8 @@ import { api, ClientApiError, type EntryDetailData } from '@/lib/client'
 import { useApp } from '@/store/app'
 import { ScreenHeader, StatusBadge, DirectionBadge, ListSkeleton, ErrorState } from '@/components/app/shared'
 import { AttachmentUploader, type UploadedAttachment } from '@/components/app/attachment-uploader'
-import { ENTRY_TYPES, WORKER_KINDS, ENTRY_STAGE_LABELS, ENTRY_STAGE_STYLES, STATUS_STYLES } from '@/lib/permissions'
+import { useImageViewer } from '@/components/app/image-viewer'
+import { entryTypeLabel, WORKER_KINDS, ENTRY_STAGE_LABELS, ENTRY_STAGE_STYLES, STATUS_STYLES } from '@/lib/permissions'
 import { formatJalaliDateTime, formatQty, toFa, formatTimeRemaining, formatJalaliFromISO } from '@/lib/fa'
 import { ERROR_MSG } from '@/components/app/messages'
 import { Drawer } from 'vaul'
@@ -32,6 +33,7 @@ export default function EntryDetail({ params }: { params?: Record<string, unknow
   const [showStages, setShowStages] = useState(true)
   const navigate = useApp((s) => s.navigate)
   const back = useApp((s) => s.back)
+  const imageViewer = useImageViewer()
 
   const load = useCallback(async () => {
     if (!id) return
@@ -46,7 +48,8 @@ export default function EntryDetail({ params }: { params?: Record<string, unknow
           fileName: a.fileName,
           mimeType: a.mimeType,
           size: a.size,
-          url: `/api/v1/attachments/${a.id}/file`,
+          // مسیر عمومی اگر فایل در public/uploads ذخیره شده؛ در غیر اینصورت API خصوصی
+          url: a.url ?? `/api/v1/attachments/${a.id}/file`,
         }))
       )
     } catch (err) {
@@ -100,7 +103,7 @@ export default function EntryDetail({ params }: { params?: Record<string, unknow
     <div className="max-w-lg mx-auto min-h-dvh">
       <ScreenHeader
         title={`ثبت شماره ${toFa(e.entryNumber)}`}
-        subtitle={ENTRY_TYPES[e.type as keyof typeof ENTRY_TYPES] ?? e.type}
+        subtitle={entryTypeLabel(e.type, e.direction)}
         onBack={back}
         right={<StatusBadge status={e.status} size="sm" />}
       />
@@ -171,7 +174,7 @@ export default function EntryDetail({ params }: { params?: Record<string, unknow
                 ))}
               </span>
             </Row>
-            <Row label="نوع ورود">{ENTRY_TYPES[e.type as keyof typeof ENTRY_TYPES] ?? e.type}</Row>
+            <Row label={e.direction === 'OUT' ? 'نوع خروج' : 'نوع ورود'}>{entryTypeLabel(e.type, e.direction)}</Row>
             {e.deliveryAt ? (
               <Row label={e.direction === 'OUT' ? 'تاریخ خروج مصالح' : 'تاریخ ورود مصالح'}>
                 <span className="font-medium">{formatJalaliFromISO(String(e.deliveryAt))}</span>
@@ -261,18 +264,25 @@ export default function EntryDetail({ params }: { params?: Record<string, unknow
             <AttachmentUploader entryId={e.id} attachments={attachments} onChange={setAttachments} />
           ) : attachments.length > 0 ? (
             <div className="space-y-2">
-              {attachments.map((a) => (
-                <a
+              {attachments.map((a, i) => (
+                <button
                   key={a.id}
-                  href={a.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center gap-3 rounded-xl border border-border bg-secondary/50 px-3 py-2.5"
+                  type="button"
+                  onClick={() =>
+                    imageViewer.open(
+                      attachments.map((x) => ({ id: x.id, url: x.url, fileName: x.fileName, mimeType: x.mimeType })),
+                      i
+                    )
+                  }
+                  className="w-full flex items-center gap-3 rounded-xl border border-border bg-secondary/50 px-3 py-2.5 active:scale-[0.99] transition-transform"
                 >
-                  <FileText className="size-5 text-accent" />
-                  <span className="text-xs font-medium flex-1 truncate">{a.fileName}</span>
-                  <span className="text-[10px] text-muted-foreground">مشاهده</span>
-                </a>
+                  <FileText className="size-5 text-accent shrink-0" />
+                  <span className="text-xs font-medium flex-1 truncate text-right">{a.fileName}</span>
+                  <span className="text-[10px] text-accent flex items-center gap-1 shrink-0">
+                    <Eye className="size-3.5" />
+                    مشاهده
+                  </span>
+                </button>
               ))}
             </div>
           ) : (
@@ -624,6 +634,8 @@ export default function EntryDetail({ params }: { params?: Record<string, unknow
           </Drawer.Content>
         </Drawer.Portal>
       </Drawer.Root>
+
+      {imageViewer.viewer}
     </div>
   )
 }

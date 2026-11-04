@@ -1,7 +1,7 @@
 import { mkdir, writeFile, unlink, stat } from 'node:fs/promises'
 import path from 'node:path'
 import sharp from 'sharp'
-import { UPLOAD_DIR } from '@/lib/env'
+import { UPLOAD_DIR, PUBLIC_UPLOADS_DIR } from '@/lib/env'
 
 // ─────────────────────────── ذخیرهٔ امن فایل پیوست ───────────────────────────
 // چندلایه: Magic Bytes (نوع واقعی) → بازپردازش Sharp (حذف متادیتا/EXIF) →
@@ -131,8 +131,66 @@ export async function validateAndProcess(file: File): Promise<{ bytes: Buffer; m
   return { bytes: raw, mime: declaredMime, ext: originalExt || allowed.extensions[0], size: raw.length }
 }
 
+// ─────────────────────────── بخش‌های ذخیرهٔ تصاویر عمومی (public/uploads) ───────────────────────────
+// هر بخش فقط به زیرپوشهٔ خودش می‌نویسد — جداسازی داده‌ها و مرز امنیتی مسیر:
+//  • purchase-requests → فاکتورهای درخواست خرید (POST /purchase-requests/[id]/invoice)
+//  • work-reports      → عکس‌های گزارش کار کارگران (entityType=WORK_REPORT)
+//  • material-entries  → پیوست‌های ثبت ورود مصالح (entityType=ENTRY با direction=IN)
+//  • material-exits    → پیوست‌های ثبت خروج مصالح (entityType=ENTRY با direction=OUT)
+//  • daily-tasks       → عکس‌های اثبات انجام وظیفه (POST /daily-tasks/items/[id]/photo)
+//  • statements        → تصویر امضای مدیر روی صورت وضعیت (POST /statements/[id]/sign)
+// بخش «approvals» پوشهٔ مجزایی ندارد: فرآیند تأأییدیه روی ثبت‌ها اعمال می‌شود و
+// مدارک بارگذاری‌شده در دل آن (مثلاً نسخه‌گذاری پیوست) در همان پوشهٔ ثبتِ مربوطه
+// (material-entries / material-exits) ذخیره می‌شوند.
+export type UploadSection =
+  | 'purchase-requests'
+  | 'work-reports'
+  | 'material-entries'
+  | 'material-exits'
+  | 'daily-tasks'
+  | 'statements'
+
+export const UPLOAD_SECTIONS: UploadSection[] = [
+  'purchase-requests',
+  'work-reports',
+  'material-entries',
+  'material-exits',
+  'daily-tasks',
+  'statements',
+]
+
+/**
+ * آیا مسیر ذخیره‌شده شکلِ بخش‌دار دارد («<section>/<filename>»)؟
+ * مسیرهای تخت (فقط نام فایل) سبک قدیمیِ UPLOAD_DIR هستند و همچنان به همان شکل
+ * خصوصی و از طریق Signed URL سرو می‌شوند.
+ */
+function isSectionStoragePath(storagePath: string): boolean {
+  const first = storagePath.split(/[\\/]/, 1)[0]
+  return (UPLOAD_SECTIONS as string[]).includes(first)
+}
+
+/**
+ * تبدیل مسیر ذخیرهٔ بخش‌دار به URL عمومی — Next.js فایل را از public سرو می‌کند.
+ * مسیرهای قدیمی (تخت) null برمی‌گردانند تا فراخوان متفیر به Signed URL قدیمی برود.
+ */
+export function publicFileUrl(storagePath: string | null | undefined): string | null {
+  if (!storagePath || !isSectionStoragePath(storagePath)) return null
+  return `/uploads/${storagePath.split(/[\\/]/).join('/')}`
+}
+
 /** اطمینان از مهار بودن مسیر داخل UPLOAD_DIR — دفاع در برابر Path Traversal */
 export function resolveStoragePath(storagePath: string): string {
+  // مسیرهای بخش‌دار («<section>/<filename>») → زیرپوشهٔ public/uploads
+  if (isSectionStoragePath(storagePath)) {
+    const resolved = path.resolve(
+      path.isAbsolute(storagePath) ? storagePath : path.join(PUBLIC_UPLOADS_DIR, storagePath)
+    )
+    if (resolved === PUBLIC_UPLOADS_DIR || !resolved.startsWith(PUBLIC_UPLOADS_DIR + path.sep)) {
+      throw new UploadValidationError(500, 'PATH_CONTAINMENT', 'مسیر فایل نامعتبر است.')
+    }
+    return resolved
+  }
+  // سبک قدیمی — نام تخت داخل UPLOAD_DIR خصوصی
   const resolved = path.resolve(path.isAbsolute(storagePath) ? storagePath : path.join(UPLOAD_DIR, storagePath))
   if (resolved !== UPLOAD_DIR && !resolved.startsWith(UPLOAD_DIR + path.sep)) {
     throw new UploadValidationError(500, 'PATH_CONTAINMENT', 'مسیر فایل نامعتبر است.')
@@ -150,27 +208,42 @@ export async function ensureUploadDir(): Promise<void> {
   dirEnsured = true
 }
 
+const ensuredSections = new Set<string>()
+/** ساخت زیرپوشهٔ بخش در public/uploads (هر بخش یک‌بار در هر پردازه) */
+export async function ensureSectionDir(section: UploadSection): Promise<void> {
+  if (ensuredSections.has(section)) return
+  await mkdir(path.join(PUBLIC_UPLOADS_DIR, section), { recursive: true })
+  ensuredSections.add(section)
+}
+
 export interface StoredFile {
-  storagePath: string // نام نسبی در پوشهٔ Upload (قابل حمل برای Docker)
+  /**
+   * مسیر نسبی — برای فایل‌های جدید: «<section>/<filename>» (همیشه با /، URL-دوست)؛
+   * برای رکوردهای قدیمی: نام تخت داخل UPLOAD_DIR.
+   */
+  storagePath: string
   size: number
   mime: string
   fileName: string // نام نمایشی امن برای کاربر
 }
 
 /**
- * ذخیرهٔ فایل با نام سرساخت — نام اصلی کاربر هرگز در filesystem استفاده نمی‌شود
- * (نه Path Traversal، نه برخورد، نه نشت اطلاعات در نام فایل).
+ * ذخیرهٔ فایل با نام سرساخت در زیرپوشهٔ بخش مربوطه — نام اصلی کاربر هرگز در
+ * filesystem استفاده نمی‌شود (نه Path Traversal، نه برخورد، نه نشت اطلاعات در نام فایل).
+ * نام یکتا: timestamp + عدد تصادفی + پسوند اصلی (هرگز نام کاربر).
  */
 export async function storeAttachmentFile(
   processed: { bytes: Buffer; ext: string; mime: string },
-  displayFileName: string
+  displayFileName: string,
+  section: UploadSection
 ): Promise<StoredFile> {
-  await ensureUploadDir()
+  await ensureSectionDir(section)
   const storageName = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}${processed.ext}`
-  const absolute = resolveStoragePath(storageName)
+  const storagePath = `${section}/${storageName}`
+  const absolute = resolveStoragePath(storagePath)
   await writeFile(absolute, processed.bytes)
   return {
-    storagePath: storageName,
+    storagePath,
     size: processed.bytes.length,
     mime: processed.mime,
     fileName: (displayFileName || `file${processed.ext}`).replace(/[\r\n]/g, '').slice(0, 200),

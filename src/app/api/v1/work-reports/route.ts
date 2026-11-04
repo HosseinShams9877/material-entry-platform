@@ -6,6 +6,7 @@ import { writeAudit } from '@/lib/audit'
 import { tehranDayStart } from '@/lib/daily'
 import { hasPermission } from '@/lib/permissions'
 import { makeSignedFileUrl } from '@/lib/signed-url'
+import { publicFileUrl } from '@/lib/upload'
 import type { Prisma } from '@prisma/client'
 
 // ─────────────────────────── GET /api/v1/work-reports — فهرست گزارش کار کارگران ───────────────────────────
@@ -18,6 +19,7 @@ export const GET = apiHandler(
     const page = Math.max(1, Number(url.searchParams.get('page') ?? '1') || 1)
     const pageSize = Math.min(50, Math.max(1, Number(url.searchParams.get('pageSize') ?? '20') || 20))
     const workerId = url.searchParams.get('workerId')
+    const createdById = url.searchParams.get('createdById')
     const workshopId = url.searchParams.get('workshopId')
     const projectId = url.searchParams.get('projectId')
     const date = url.searchParams.get('date')
@@ -30,6 +32,7 @@ export const GET = apiHandler(
     const and: Prisma.WorkReportWhereInput[] = [workshopOrProjectScopeFilter(scope) as Prisma.WorkReportWhereInput]
 
     if (workerId) and.push({ workerId })
+    if (createdById) and.push({ createdById })
     if (workshopId) and.push({ workshopId })
     if (projectId) and.push({ projectId })
     if (mine) and.push({ createdById: user.id })
@@ -69,13 +72,14 @@ export const GET = apiHandler(
       ? await db.attachment.findMany({
           where: { entityType: 'WORK_REPORT', entityId: { in: reportIds } },
           orderBy: { createdAt: 'asc' },
-          select: { id: true, entityId: true, mimeType: true },
+          select: { id: true, entityId: true, mimeType: true, storagePath: true },
         })
       : []
     const photosByReport = new Map<string, Array<{ id: string; mimeType: string; url: string }>>()
     for (const ph of photos) {
       const list = photosByReport.get(ph.entityId ?? '') ?? []
-      list.push({ id: ph.id, mimeType: ph.mimeType, url: makeSignedFileUrl(ph.id) })
+      // عکس‌های جدید از public/uploads/work-reports سرو می‌شوند؛ قدیمی‌ها Signed URL
+      list.push({ id: ph.id, mimeType: ph.mimeType, url: publicFileUrl(ph.storagePath) ?? makeSignedFileUrl(ph.id) })
       photosByReport.set(ph.entityId ?? '', list)
     }
 

@@ -5,6 +5,7 @@ import { updatePurchaseSchema } from '@/lib/validate'
 import { writeAudit } from '@/lib/audit'
 import { hasPermission } from '@/lib/permissions'
 import { tehranDayStart } from '@/lib/daily'
+import { publicFileUrl } from '@/lib/upload'
 
 // ─────────────────────────── GET /api/v1/purchase-requests/[id] — جزئیات درخواست ───────────────────────────
 
@@ -59,7 +60,10 @@ export const GET = apiHandler(
         invoiceFileName: request.invoiceFileName,
         invoiceMimeType: request.invoiceMimeType,
         invoiceSize: request.invoiceSize,
-        invoiceUrl: hasInvoice ? `/api/v1/purchase-requests/${request.id}/invoice/file` : null,
+        // فاکتورهای جدید در public/uploads/purchase-requests سرو می‌شوند؛ قدیمی‌ها via API خصوصی
+        invoiceUrl: hasInvoice
+          ? publicFileUrl(request.invoicePath) ?? `/api/v1/purchase-requests/${request.id}/invoice/file`
+          : null,
         items: request.items.map((i) => ({
           id: i.id,
           materialId: i.materialId,

@@ -5,6 +5,7 @@ import { updateStatementSchema } from '@/lib/validate'
 import { writeAudit } from '@/lib/audit'
 import { hasPermission, MANAGER_SIGN_THRESHOLD_TOMAN } from '@/lib/permissions'
 import { makeSignedStatementSignatureUrl } from '@/lib/signed-url'
+import { publicFileUrl } from '@/lib/upload'
 
 // ─────────────────────────── GET /api/v1/statements/[id] — جزئیات صورت وضعیت ───────────────────────────
 
@@ -57,9 +58,10 @@ export const GET = apiHandler(
         signedByName: statement.signedBy?.fullName ?? null,
         signerName: statement.signerName,
         signedAt: statement.signedAt?.toISOString() ?? null,
+        // امضاهای جدید در public/uploads/statements سرو می‌شوند؛ قدیمی‌ها Signed URL
         signatureUrl:
           statement.signaturePath && statement.status === 'SIGNED'
-            ? makeSignedStatementSignatureUrl(statement.id)
+            ? publicFileUrl(statement.signaturePath) ?? makeSignedStatementSignatureUrl(statement.id)
             : null,
         rejectedByName: statement.rejectedBy?.fullName ?? null,
         rejectedAt: statement.rejectedAt?.toISOString() ?? null,

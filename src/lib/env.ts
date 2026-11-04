@@ -52,6 +52,17 @@ export const UPLOAD_DIR: string = path.resolve(
   process.env.UPLOAD_DIR?.trim() || path.join(process.cwd(), 'uploads')
 )
 
+/**
+ * پوشهٔ ریشهٔ تصاویر عمومی — داخل public/uploads.
+ * Next.js این مسیر را مستقیماً (Static Serving) پاسخ می‌دهد، پس URL فایل‌ها
+ * به‌صورت /uploads/<بخش>/<نیم‌فایل> در دسترس کلاینت است.
+ * هر بخش فقط زیرپوشهٔ خودش را می‌نویسد (نگاشت بخش‌ها در src/lib/upload.ts).
+ * فایل‌های قدیمی (نام تخت در UPLOAD_DIR) همچنان خصوصی و Signed-URL باقی می‌مانند.
+ */
+export const PUBLIC_UPLOADS_DIR: string = path.resolve(
+  process.cwd(), 'public', 'uploads'
+)
+
 /** مدت اعتبار Signed URL (میلی‌ثانیه) — پیش‌فرض ۱۰ دقیقه */
 export const SIGNED_URL_TTL_MS: number = parsePositiveInt(
   process.env.SIGNED_URL_TTL_MS,

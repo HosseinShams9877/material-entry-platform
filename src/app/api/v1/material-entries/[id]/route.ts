@@ -2,6 +2,7 @@ import { db } from '@/lib/db'
 import { apiHandler, ok, ApiError } from '@/lib/api'
 import { canAccessEntry } from '@/lib/scope'
 import { hasPermission } from '@/lib/permissions'
+import { publicFileUrl } from '@/lib/upload'
 import { isLocked } from '@/lib/entry-rules'
 import { canDirectEdit, canRequestCorrection, canResubmit, canManageEntry, statusHint } from '@/lib/entry-rules'
 
@@ -20,7 +21,7 @@ async function loadEntryForUser(id: string, user: { id: string; role: string; wo
       supervisor: { select: { id: true, fullName: true } },
       sourceSupplier: { select: { id: true, name: true } },
       sourceWorkshop: { select: { id: true, name: true } },
-      attachments: { select: { id: true, kind: true, fileName: true, mimeType: true, size: true, version: true, replacedById: true, createdAt: true, uploadedBy: { select: { fullName: true } } } },
+      attachments: { select: { id: true, kind: true, fileName: true, mimeType: true, size: true, storagePath: true, version: true, replacedById: true, createdAt: true, uploadedBy: { select: { fullName: true } } } },
       versions: { orderBy: { version: 'desc' }, include: { changedBy: { select: { fullName: true } } } },
       corrections: { orderBy: { createdAt: 'desc' }, include: { requestedBy: { select: { fullName: true } } } },
       approvals: { orderBy: { decidedAt: 'desc' }, include: { decidedBy: { select: { fullName: true } } } },
@@ -49,6 +50,11 @@ export async function GET(req: import('next/server').NextRequest, ctx: RoutePara
     return ok({
       entry: {
         ...entry,
+        // پیوست‌های جدید از public/uploads/<section> سرو می‌شوند؛ قدیمی‌ها via API خصوصی
+        attachments: entry.attachments.map((a) => ({
+          ...a,
+          url: publicFileUrl(a.storagePath) ?? `/api/v1/attachments/${a.id}/file`,
+        })),
         // انباردار و مدیر کل می‌توانند ثبت‌های دیگران را مانند سرپرست ویرایش/ارسال مجدد کنند
         canEdit: hasPermission(user.role, 'entry.edit') && canDirectEdit(entry) && canManageEntry(entry, user),
         canResubmit: hasPermission(user.role, 'entry.submit') && canResubmit(entry) && canManageEntry(entry, user),

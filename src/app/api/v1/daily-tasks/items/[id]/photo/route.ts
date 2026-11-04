@@ -8,7 +8,7 @@ import { logger, safeErrorMeta } from '@/lib/logger'
 /**
  * آپلود «عکس اثبات انجام» برای آیتم وظیفه — مجوز: task.complete
  * چندلایه: Magic Bytes → بازپردازش Sharp (حذف EXIF/GPS) → سقف حجم → نام سرساخت.
- * فایل خصوصی می‌ماند و فقط با نشست دارای Scope سرو می‌شود.
+ * فایل در public/uploads/daily-tasks ذخیره می‌شود و URL عمومی برمی‌گردد.
  */
 export const POST = apiHandler(
   async ({ req, user, params, ip, userAgent }) => {
@@ -41,7 +41,8 @@ export const POST = apiHandler(
       throw err
     }
 
-    const stored = await storeAttachmentFile(processed, file.name || 'photo.jpg')
+    // عکس در زیرپوشهٔ بخش وظایف: public/uploads/daily-tasks
+    const stored = await storeAttachmentFile(processed, file.name || 'photo.jpg', 'daily-tasks')
 
     // Rollback فایل در خطای DB — فایل یتیم باقی نمی‌ماند
     try {

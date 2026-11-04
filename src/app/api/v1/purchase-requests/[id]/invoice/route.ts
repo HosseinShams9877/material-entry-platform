@@ -56,7 +56,8 @@ export const POST = apiHandler(
       throw new ApiError(422, 'INVALID_UPLOAD', 'فایل قابل پذیرش نیست.')
     }
 
-    const stored = await storeAttachmentFile(processed, file.name || 'invoice')
+    // فاکتور در زیرپوشهٔ بخش خریدها: public/uploads/purchase-requests
+    const stored = await storeAttachmentFile(processed, file.name || 'invoice', 'purchase-requests')
 
     try {
       const previousPath = request.invoicePath

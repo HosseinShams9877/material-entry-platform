@@ -17,6 +17,10 @@ export const GET = apiHandler(async ({ req, user }) => {
   const q = (url.searchParams.get('q') ?? '').trim()
   const from = url.searchParams.get('from') ?? ''
   const to = url.searchParams.get('to') ?? ''
+  // فیلترهای بخش تأییدیه‌ها — کارگاه / پروژه / ثبت‌کننده (سرپرست) — همه Scope-aware
+  const workshopId = url.searchParams.get('workshopId') ?? ''
+  const projectId = url.searchParams.get('projectId') ?? ''
+  const supervisorId = url.searchParams.get('supervisorId') ?? ''
   const scope = await getUserScope(user)
 
   // فیلتر بازهٔ تاریخ — روی تاریخ ورود؛ ثبت‌های بدون تاریخ ورود با تاریخ ایجاد
@@ -55,6 +59,10 @@ export const GET = apiHandler(async ({ req, user }) => {
         : []),
       ...(type && type !== 'ALL' ? [{ type }] : []),
       ...(direction === 'IN' || direction === 'OUT' ? [{ direction }] : []),
+      // فیلتر کارگاه/پروژه/سرپرست — در تقاطع با Scope قرار دارند (entryScopeFilter بالا)
+      ...(workshopId && workshopId !== 'ALL' && workshopId !== '__all__' ? [{ workshopId }] : []),
+      ...(supervisorId && supervisorId !== 'ALL' && supervisorId !== '__all__' ? [{ supervisorId }] : []),
+      ...(projectId && projectId !== 'ALL' && projectId !== '__all__' ? [{ projects: { some: { projectId } } }] : []),
       // فقط ثبت‌های Submit شده + پیش‌نویس‌های خود کاربر
       ...(user.role === 'SITE_SUPERVISOR' ? [{ OR: [{ status: { not: 'DRAFT' } }, { supervisorId: user.id }] }] : []),
       ...(q

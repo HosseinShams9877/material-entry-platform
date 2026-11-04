@@ -265,7 +265,7 @@ export const taskDetailInclude = {
     include: {
       completedBy: { select: { id: true, fullName: true } },
       photos: {
-        select: { id: true, fileName: true, mimeType: true, size: true, createdAt: true, uploadedBy: { select: { fullName: true } } },
+        select: { id: true, fileName: true, mimeType: true, size: true, storagePath: true, createdAt: true, uploadedBy: { select: { fullName: true } } },
         orderBy: { createdAt: 'asc' as const },
       },
     },

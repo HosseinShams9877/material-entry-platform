@@ -3,12 +3,28 @@ import { apiHandler, ok, ApiError } from '@/lib/api'
 import { resolveAttachmentAccess, type AttachmentEntity } from '@/lib/scope'
 import { writeAudit } from '@/lib/audit'
 import { makeSignedFileUrl } from '@/lib/signed-url'
-import { validateAndProcess, storeAttachmentFile, removeStoredFile, UploadValidationError, MAX_UPLOAD_SIZE } from '@/lib/upload'
+import {
+  validateAndProcess, storeAttachmentFile, removeStoredFile, publicFileUrl,
+  UploadValidationError, MAX_UPLOAD_SIZE, type UploadSection,
+} from '@/lib/upload'
 import { activeStorageProvider } from '@/lib/storage'
 import { logger, safeErrorMeta } from '@/lib/logger'
 
 const ATTACHMENT_KINDS = ['INVOICE', 'WAYBILL', 'RECEIPT', 'OTHER', 'PHOTO'] as const
 const ENTITY_TYPES: AttachmentEntity[] = ['ENTRY', 'STATEMENT', 'WORK_REPORT']
+
+/**
+ * نگاشت نوع موجودیت → زیرپوشهٔ public/uploads مربوطه.
+ * - WORK_REPORT → work-reports، STATEMENT → statements
+ * - ENTRY → بستگی به جهت ثبت دارد: خروج‌ها در material-exits، ورودها در material-entries
+ *   (تأأییدیه‌ها مدرک مستقلی بارگذاری نمی‌کنند؛ نسخه‌گذاری‌ها در همان پوشهٔ ثبت می‌روند).
+ */
+async function resolveUploadSection(entityType: AttachmentEntity, entityId: string): Promise<UploadSection> {
+  if (entityType === 'WORK_REPORT') return 'work-reports'
+  if (entityType === 'STATEMENT') return 'statements'
+  const entry = await db.materialEntry.findUnique({ where: { id: entityId }, select: { direction: true } })
+  return entry?.direction === 'OUT' ? 'material-exits' : 'material-entries'
+}
 
 function serialize(a: {
   id: string
@@ -17,6 +33,7 @@ function serialize(a: {
   mimeType: string
   size: number
   createdAt: Date
+  storagePath: string | null
 }) {
   return {
     id: a.id,
@@ -24,7 +41,8 @@ function serialize(a: {
     fileName: a.fileName,
     mimeType: a.mimeType,
     size: a.size,
-    url: makeSignedFileUrl(a.id),
+    // فایل‌های جدید در public/uploads سرو می‌شوند؛ رکوردهای قدیمی (مسیر تخت) Signed URL می‌گیرند
+    url: publicFileUrl(a.storagePath) ?? makeSignedFileUrl(a.id),
     createdAt: a.createdAt,
   }
 }
@@ -81,8 +99,9 @@ export const POST = apiHandler(
       throw new ApiError(422, 'INVALID_UPLOAD', 'فایل قابل پذیرش نیست.')
     }
 
-    // ذخیرهٔ فایل با نام سرساخت داخل UPLOAD_DIR (خارج از public)
-    const stored = await storeAttachmentFile(processed, file.name || '')
+    // ذخیرهٔ فایل با نام سرساخت داخل زیرپوشهٔ بخش مربوطه در public/uploads
+    const section = await resolveUploadSection(entityType, entityId)
+    const stored = await storeAttachmentFile(processed, file.name || '', section)
 
     // درج رکورد — در صورت شکست، فایل فیزیکی حذف می‌شود (بدون فایل یتیم)
     let attachment
@@ -124,7 +143,7 @@ export const POST = apiHandler(
         fileName: attachment.fileName,
         mimeType: attachment.mimeType,
         size: attachment.size,
-        url: makeSignedFileUrl(attachment.id),
+        url: publicFileUrl(stored.storagePath) ?? makeSignedFileUrl(attachment.id),
         createdAt: attachment.createdAt,
       },
       { status: 201 }

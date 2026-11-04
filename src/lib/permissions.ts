@@ -163,6 +163,20 @@ export const ENTRY_DIRECTIONS = {
 } as const
 export type EntryDirectionKey = keyof typeof ENTRY_DIRECTIONS
 
+/** برچسب نوع ثبت با توجه به جهت — در جریان خروج، نوع PURCHASE «فروش» نمایش داده می‌شود.
+ *  کلید ذخیره‌شده در پایگاه‌داده تغییر نمی‌کند؛ فقط برچسب نمایشی جهت‌دار است. */
+export const ENTRY_TYPE_OUT_OVERRIDES: Record<string, string> = {
+  PURCHASE: 'فروش',
+}
+
+export function entryTypeLabel(type: string, direction?: string | null): string {
+  if (direction === 'OUT') {
+    const override = ENTRY_TYPE_OUT_OVERRIDES[type]
+    if (override) return override
+  }
+  return ENTRY_TYPES[type as keyof typeof ENTRY_TYPES] ?? type
+}
+
 export const SOURCE_TYPES = {
   SUPPLIER: 'تأمین‌کننده',
   WORKSHOP: 'کارگاه دیگر',
