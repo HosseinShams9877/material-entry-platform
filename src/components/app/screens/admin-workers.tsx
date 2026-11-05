@@ -378,70 +378,9 @@ function WorkerForm({
   const [wsOpen, setWsOpen] = useState(false)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/50" />
-      <div
-        className="relative w-full max-w-lg mx-auto rounded-t-2xl bg-card p-5 max-h-[92dvh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="font-semibold mb-4">{worker ? 'ویرایش فرد' : 'فرد جدید'}</h3>
-        <div className="space-y-3">
-          <div>
-            <label className="block text-xs font-medium mb-1.5">نام و نام خانوادگی <span className="text-red-500">*</span></label>
-            <Input value={fullName} onChange={(e) => setFullName(e.target.value)} className="bg-secondary/60 border-0" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-1.5">نقش</label>
-            <select value={kind} onChange={(e) => setKind(e.target.value)} className="w-full rounded-xl border border-input bg-card px-3 py-2.5 text-sm min-h-11">
-              {Object.entries(WORKER_KINDS).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-1.5">شرح وظایف</label>
-            <Input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder="مثلاً: بنّا — اجرای سقف" className="bg-secondary/60 border-0" maxLength={200} />
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-1.5">تلفن</label>
-            <Input value={phone ?? ''} onChange={(e) => setPhone(e.target.value)} className="bg-secondary/60 border-0" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-1.5">کارگاه</label>
-            <button type="button" onClick={() => setWsOpen(true)} className="w-full rounded-xl border border-input bg-card px-4 py-2.5 text-sm text-right min-h-11">
-              {workshopId ? workshops.find((w) => w.id === workshopId)?.name ?? '—' : 'انتخاب کارگاه…'}
-            </button>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium">فعال</span>
-            <Switch checked={isActive} onCheckedChange={setIsActive} />
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-2.5 mt-5">
-          <Button variant="outline" onClick={onClose} className="h-12 rounded-xl">
-            انصراف
-          </Button>
-          <Button
-            onClick={() =>
-              onSave({
-                fullName: fullName.trim(),
-                kind,
-                jobTitle: jobTitle.trim() || null,
-                phone: phone.trim() || null,
-                workshopId: workshopId ?? null,
-                isActive,
-              })
-            }
-            disabled={saving}
-            className="h-12 rounded-xl bg-accent hover:bg-accent/90 text-accent-foreground font-bold"
-          >
-            {saving ? 'در حال ذخیره…' : 'ذخیره'}
-          </Button>
-        </div>
-      </div>
-
+    <>
+      {/* Item ۹: شیت انتخاب کارگاه از داخل لایهٔ بستن فرم بیرون منتقل شد —
+          کلیک‌های شیت به onClose سفتی نباید برسند و فرم را ببندند */}
       <SelectionSheet
         open={wsOpen}
         onOpenChange={setWsOpen}
@@ -450,6 +389,70 @@ function WorkerForm({
         selected={workshopId ? [workshopId] : []}
         onConfirm={(ids) => setWorkshopId(ids[0] ?? null)}
       />
-    </div>
+      <div className="fixed inset-0 z-50 flex items-end" onClick={onClose}>
+        <div className="absolute inset-0 bg-black/50" />
+        <div
+          className="relative w-full max-w-lg mx-auto rounded-t-2xl bg-card p-5 max-h-[92dvh] overflow-y-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <h3 className="font-semibold mb-4">{worker ? 'ویرایش فرد' : 'فرد جدید'}</h3>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-medium mb-1.5">نام و نام خانوادگی <span className="text-red-500">*</span></label>
+              <Input value={fullName} onChange={(e) => setFullName(e.target.value)} className="bg-secondary/60 border-0" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1.5">نقش</label>
+              <select value={kind} onChange={(e) => setKind(e.target.value)} className="w-full rounded-xl border border-input bg-card px-3 py-2.5 text-sm min-h-11">
+                {Object.entries(WORKER_KINDS).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1.5">شرح وظایف</label>
+              <Input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder="مثلاً: بنّا — اجرای سقف" className="bg-secondary/60 border-0" maxLength={200} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1.5">تلفن</label>
+              <Input value={phone ?? ''} onChange={(e) => setPhone(e.target.value)} className="bg-secondary/60 border-0" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1.5">کارگاه</label>
+              <button type="button" onClick={() => setWsOpen(true)} className="w-full rounded-xl border border-input bg-card px-4 py-2.5 text-sm text-right min-h-11">
+                {workshopId ? workshops.find((w) => w.id === workshopId)?.name ?? '—' : 'انتخاب کارگاه…'}
+              </button>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium">فعال</span>
+              <Switch checked={isActive} onCheckedChange={setIsActive} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2.5 mt-5">
+            <Button variant="outline" onClick={onClose} className="h-12 rounded-xl">
+              انصراف
+            </Button>
+            <Button
+              onClick={() =>
+                onSave({
+                  fullName: fullName.trim(),
+                  kind,
+                  jobTitle: jobTitle.trim() || null,
+                  phone: phone.trim() || null,
+                  workshopId: workshopId ?? null,
+                  isActive,
+                })
+              }
+              disabled={saving}
+              className="h-12 rounded-xl bg-accent hover:bg-accent/90 text-accent-foreground font-bold"
+            >
+              {saving ? 'در حال ذخیره…' : 'ذخیره'}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </>
   )
 }

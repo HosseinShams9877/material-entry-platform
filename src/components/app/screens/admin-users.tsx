@@ -53,6 +53,8 @@ export default function AdminUsers() {
     isActive: boolean
   }>(null)
   const [wsOpen, setWsOpen] = useState(false)
+  // Item ۵—c: شیت مجزای انتخاب «کارگاه اصلی» — قبلاً با شیت دسترسی چند-کارگاهی مشترک بود و غیرقابل ویرایش می‌نمود
+  const [wsPrimaryOpen, setWsPrimaryOpen] = useState(false)
   const [prjOpen, setPrjOpen] = useState(false)
   const [workerOpen, setWorkerOpen] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -280,9 +282,10 @@ export default function AdminUsers() {
               </div>
               <div>
                 <label className="block text-xs font-medium mb-1.5">کارگاه اصلی (برای سرپرست / نیروی اجرایی)</label>
-                <button type="button" onClick={() => setWsOpen(true)} className="w-full rounded-xl border border-input bg-card px-4 py-2.5 text-sm text-right min-h-11">
+                <button type="button" onClick={() => setWsPrimaryOpen(true)} className="w-full rounded-xl border border-input bg-card px-4 py-2.5 text-sm text-right min-h-11">
                   {form.workshopId ? workshops.find((w) => w.id === form.workshopId)?.name ?? '—' : 'انتخاب کارگاه…'}
                 </button>
+                <p className="text-[10px] text-muted-foreground mt-1">کارگاه اصلی بعد از ایجاد کاربر نیز قابل تغییر است.</p>
               </div>
               {form.role === 'FIELD_WORKER' ? (
                 <div>
@@ -333,11 +336,21 @@ export default function AdminUsers() {
       ) : null}
 
       <SelectionSheet
+        open={wsPrimaryOpen}
+        onOpenChange={setWsPrimaryOpen}
+        title="انتخاب کارگاه اصلی"
+        options={workshops.map((w) => ({ id: w.id, label: w.name }))}
+        selected={form?.workshopId ? [form.workshopId] : []}
+        onConfirm={(ids) =>
+          form && setForm({ ...form, workshopId: ids[0] ?? null })
+        }
+      />
+      <SelectionSheet
         open={wsOpen}
         onOpenChange={setWsOpen}
-        title="انتخاب کارگاه"
+        title="انتخاب کارگاه‌ها"
         options={workshops.map((w) => ({ id: w.id, label: w.name }))}
-        selected={form?.id ? form.workshopAccessIds : form?.workshopAccessIds ?? []}
+        selected={form?.workshopAccessIds ?? []}
         multi
         onConfirm={(ids) => form && setForm({ ...form, workshopAccessIds: ids, workshopId: form.workshopId ?? ids[0] ?? null })}
       />

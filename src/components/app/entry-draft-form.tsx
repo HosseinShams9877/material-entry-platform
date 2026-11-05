@@ -99,6 +99,8 @@ export function EntryDraftForm({
   const [saving, setSaving] = useState(false)
   const [showErrors, setShowErrors] = useState(false)
   const [loadingEdit, setLoadingEdit] = useState(!!editId)
+  // Item ۱ — موجودی انبار کارگاه برای جریان خروج (نمایش + مسدودسازی پیش از ارسال)
+  const [stockRows, setStockRows] = useState<Array<{ materialName: string; unit: string; quantity: number }>>([])
   const navigate = useApp((s) => s.navigate)
   const back = useApp((s) => s.back)
 
@@ -167,13 +169,62 @@ export function EntryDraftForm({
   const unitOptions = useMemo(() => (master?.units ?? []).map((u) => ({ id: u.title, label: u.title })), [master])
   const workerOptions = useMemo(() => (master?.workers ?? []).map((w) => ({ id: w.id, label: w.fullName, hint: WORKER_KINDS[w.kind as keyof typeof WORKER_KINDS] ?? w.kind })), [master])
 
+  // Item ۱ — کارگاهی که موجودی خروج باید از آن بررسی شود: انبار کارگاه پروژهٔ انتخاب‌شده
+  const stockWorkshopId = useMemo(() => {
+    if (v.direction !== 'OUT') return null
+    const pid = lockProjectId ?? v.projectIds[0]
+    if (!pid) return null
+    return master?.projects.find((p) => p.id === pid)?.workshopId ?? null
+  }, [v.direction, lockProjectId, v.projectIds, master])
+
+  useEffect(() => {
+    if (!stockWorkshopId) {
+      setStockRows([])
+      return
+    }
+    api
+      .get<{ stocks: Array<{ materialName: string; unit: string; quantity: number }> }>(`/api/v1/inventory?workshopId=${stockWorkshopId}`)
+      .then((r) => setStockRows(r.stocks))
+      .catch(() => setStockRows([]))
+  }, [stockWorkshopId])
+
+  // Item ۱ — بررسی موجودی هر قلم خروجی (اقلام تکراری با نام/واحد یکسان تجمیع می‌شوند)
+  // فقط وقتی لیست موجودی با موفقیت دریافت شده باشد بررسی می‌کنیم؛ در غیر این صورت
+  // اعتبارسنجی نهایی به سرور واگذار می‌شود (جلوگیری از مسدودسازیِ اشتباه جریان خروج).
+  const stockShortages = useMemo(() => {
+    if (v.direction !== 'OUT' || stockRows.length === 0) return [] as Array<{ materialName: string; unit: string; requested: number; available: number }>
+    const aggregated = new Map<string, { materialName: string; unit: string; requested: number }>()
+    for (const it of v.items) {
+      const name = it.materialName.trim()
+      const q = Number(toEnDigits(it.quantity))
+      if (!name || !(q > 0)) continue
+      const key = `${name}|${it.unit}`
+      const prev = aggregated.get(key)
+      if (prev) prev.requested += q
+      else aggregated.set(key, { materialName: name, unit: it.unit, requested: q })
+    }
+    const out: Array<{ materialName: string; unit: string; requested: number; available: number }> = []
+    for (const it of aggregated.values()) {
+      const available = stockRows.find((s) => s.materialName === it.materialName && s.unit === it.unit)?.quantity ?? 0
+      if (available < it.requested) out.push({ ...it, available })
+    }
+    return out
+  }, [v.direction, v.items, stockRows])
+
+  // موجودی انبار برای نمایش در ردیف قلم خروجی
+  function stockOf(name: string, unit: string): number | null {
+    if (v.direction !== 'OUT' || !name.trim() || stockRows.length === 0) return null
+    return stockRows.find((s) => s.materialName === name.trim() && s.unit === unit)?.quantity ?? 0
+  }
+
   // ─────────────────────────── اعتبارسنجی با پیام انسانی ───────────────────────────
   const errors = useMemo(() => {
     const errs: string[] = []
     if (!v.type) errs.push('نوع ورود را انتخاب کنید.')
     if (v.projectIds.length === 0) errs.push('حداقل یک پروژه انتخاب کنید.')
     const hasSource = v.sourceType === 'SUPPLIER' ? !!v.sourceSupplierId : v.sourceType === 'WORKSHOP' ? !!v.sourceWorkshopId : !!v.sourceLabel
-    if (!hasSource) errs.push('مبدأ این محموله را مشخص کنید.')
+    // Item ۳ — پیام متناسب با جهت جریان: خروج → مقصد، ورود → مبدأ
+    if (!hasSource) errs.push(v.direction === 'OUT' ? 'مقصد این محموله را مشخص کنید.' : 'مبدا این محموله را مشخص کنید.')
     if (v.items.length === 0) errs.push('حداقل یک قلم مصالح اضافه کنید.')
     for (const [i, it] of v.items.entries()) {
       if (!it.materialName.trim()) errs.push(`نام مصالح قلم ${toFa(i + 1)} را وارد کنید.`)
@@ -181,8 +232,12 @@ export function EntryDraftForm({
       if (!q || Number(q) <= 0) errs.push(`مقدار «${it.materialName || `قلم ${toFa(i + 1)}`}» را وارد کنید.`)
       if (!it.unit) errs.push(`واحد «${it.materialName || `قلم ${toFa(i + 1)}`}» را انتخاب کنید.`)
     }
+    // Item ۱ — مسدودسازی پیش از ارسال: هر قلم خروجی باید موجودی کافی داشته باشد
+    for (const s of stockShortages) {
+      errs.push(`موجودی کافی نیست — «${s.materialName}»: درخواست ${toFa(s.requested)} ${s.unit} / موجودی ${toFa(s.available)} ${s.unit}`)
+    }
     return errs
-  }, [v])
+  }, [v, stockShortages])
 
   async function saveDraft() {
     setShowErrors(true)
@@ -344,8 +399,8 @@ export function EntryDraftForm({
           )}
         </Section>
 
-        {/* مبدأ */}
-        <Section icon={v.sourceType === 'SUPPLIER' ? <Factory className="size-4" /> : <Building2 className="size-4" />} label={isOut ? 'مقصد خروج' : 'مبدأ ورود'} required missing={hl('source') || (showErrors && errors.some((e) => e.includes('مبدأ')))}>
+        {/* مبدأ / مقصد — بسته به جهت جریان */}
+        <Section icon={v.sourceType === 'SUPPLIER' ? <Factory className="size-4" /> : <Building2 className="size-4" />} label={isOut ? 'مقصد خروج' : 'مبدأ ورود'} required missing={hl('source') || (showErrors && errors.some((e) => e.includes('مبدأ') || e.includes('مقصد')))}>
           <div className="grid grid-cols-3 gap-2 mb-2">
             {Object.entries(SOURCE_TYPES).map(([key, label]) => (
               <button
@@ -380,7 +435,7 @@ export function EntryDraftForm({
               onClick={() => setSheet('source')}
               className="w-full flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3 min-h-12 text-right"
             >
-              <span className={v.sourceLabel ? 'text-sm' : 'text-sm text-muted-foreground'}>{v.sourceLabel ?? 'انتخاب کارگاه مبدأ…'}</span>
+              <span className={v.sourceLabel ? 'text-sm' : 'text-sm text-muted-foreground'}>{v.sourceLabel ?? (isOut ? 'انتخاب کارگاه مقصد…' : 'انتخاب کارگاه مبدأ…')}</span>
               <ChevronDown className="size-4 text-muted-foreground" />
             </button>
           ) : (
@@ -470,6 +525,23 @@ export function EntryDraftForm({
                     className="bg-secondary/60 border-0"
                   />
                 </div>
+                {/* Item ۱ — نمایش موجودی انبار کارگاه در برابر مقدار درخواستی برای این قلم خروجی */}
+                {(() => {
+                  const available = stockOf(it.materialName, it.unit)
+                  if (available === null) return null
+                  const requested = Number(toEnDigits(it.quantity))
+                  const insufficient = requested > 0 && available < requested
+                  return (
+                    <div className={`flex items-center gap-1.5 text-[11px] ${insufficient ? 'text-red-600 font-semibold' : 'text-muted-foreground'}`}>
+                      <Package className="size-3.5 shrink-0" />
+                      <span>
+                        موجودی انبار: {toFa(available)} {it.unit}
+                        {requested > 0 ? <> / درخواست: {toFa(requested)} {it.unit}</> : null}
+                      </span>
+                      {insufficient ? <span className="font-bold">— موجودی کافی نیست</span> : null}
+                    </div>
+                  )
+                })()}
               </div>
             ))}
             <Button
@@ -552,7 +624,7 @@ export function EntryDraftForm({
       <SelectionSheet
         open={sheet === 'source'}
         onOpenChange={(o) => !o && setSheet(null)}
-        title={v.sourceType === 'SUPPLIER' ? 'انتخاب تأمین‌کننده' : 'انتخاب کارگاه مبدأ'}
+        title={v.sourceType === 'SUPPLIER' ? 'انتخاب تأمین‌کننده' : isOut ? 'انتخاب کارگاه مقصد' : 'انتخاب کارگاه مبدأ'}
         options={v.sourceType === 'SUPPLIER' ? supplierOptions : workshopOptions}
         selected={[]}
         onConfirm={(ids) => {
@@ -575,7 +647,8 @@ export function EntryDraftForm({
         onConfirm={(ids) => {
           if (activeItem === null) return
           const m = master?.materials.find((x) => x.id === ids[0])
-          if (m) setItem(activeItem, { materialId: m.id, materialName: m.name, unit: v.items[activeItem].unit || m.defaultUnit || '' })
+          // Item ۲ — تغییر مصالح، واحد ردیف را به واحد پیش‌فرض مصالحِ جدید به‌روز می‌کند
+          if (m) setItem(activeItem, { materialId: m.id, materialName: m.name, unit: m.defaultUnit || v.items[activeItem].unit || '' })
         }}
       />
       <SelectionSheet

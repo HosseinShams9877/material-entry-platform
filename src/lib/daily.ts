@@ -117,6 +117,53 @@ export function progressPercent(items: Array<{ isCompleted: boolean }>): number 
   return Math.round((done / items.length) * 100)
 }
 
+// ── Item ۸: تکمیل مستقل هر گیرنده ──
+
+/** آیتم همراه با انجامِ مستقل هر گیرنده (TaskItemCompletion) */
+export type ItemWithCompletions = {
+  id: string
+  isCompleted: boolean
+  completions: Array<{ userId: string; isCompleted: boolean }>
+}
+
+/**
+ * درصد پیشرفت یک گیرندهٔ مشخص — Item ۸.
+ * تکمیل توسط دیگران روی پیشرفتِ این شخص اثر ندارد.
+ */
+export function assigneeProgressPercent(items: ItemWithCompletions[], userId: string): number {
+  if (items.length === 0) return 0
+  const done = items.filter((i) => i.completions.some((c) => c.userId === userId && c.isCompleted)).length
+  return Math.round((done / items.length) * 100)
+}
+
+/**
+ * میانگین درصد پیشرفت همهٔ گیرنده‌ها — Item ۱0—b (مثلاً ۳۰٪ + ۸۰٪ ← ۵۵٪).
+ * در نبود گیرنده، همان پیشرفت اشتراکی نمایش داده می‌شود.
+ */
+export function averageAssigneeProgress(items: ItemWithCompletions[], assigneeUserIds: string[]): number {
+  if (assigneeUserIds.length === 0) return progressPercent(items)
+  const sum = assigneeUserIds.reduce((acc, uid) => acc + assigneeProgressPercent(items, uid), 0)
+  return Math.round(sum / assigneeUserIds.length)
+}
+
+/**
+ * همگام‌سازی پرچم اشتراکی آیتم — Item ۸.
+ * پرچم قدیمیِ `isCompleted` روی آیتم فقط وقتی «true» می‌ماند که «همهٔ گیرنده‌ها»
+ * آن را تیک زده باشند؛ اینگونه گزارش‌های قدیمی و محافظت PATCH حفظ می‌شود.
+ * خروجی: وضعیت جدیدِ پرچم اشتراکی.
+ */
+export async function recomputeItemSharedFlag(itemId: string, assigneeCount: number, completedById?: string): Promise<boolean> {
+  const doneCount = await db.taskItemCompletion.count({ where: { itemId, isCompleted: true } })
+  const isCompleted = assigneeCount > 0 && doneCount >= assigneeCount
+  await db.dailyTaskItem.update({
+    where: { id: itemId },
+    data: isCompleted
+      ? { isCompleted: true, completedAt: new Date(), ...(completedById ? { completedById } : {}) }
+      : { isCompleted: false, completedAt: null, completedById: null, completionNote: null },
+  })
+  return isCompleted
+}
+
 // ─────────────────────────── Invalidate Deadline Sweep ───────────────────────────
 // بدون Cron: هنگام دریافت لیست وظایف (هر نیم‌ساعت حداکثر یک‌بار در هر پروسه) رویدادهای
 // «نزدیک شدن مهلت» و «عبور از مهلت» را اعلان می‌کند. وضعیت وظیفه تغییر نمی‌کند —
@@ -205,7 +252,7 @@ export async function projectManagerIds(projectId: string): Promise<string[]> {
 }
 
 /**
- * تکمیل خودکار وظیفه اگر همهٔ آیتم‌ها انجام شده باشند.
+ * تکمیل خودکار وظیفه — Item ۸: فقط وقتی «هر گیرنده» «هر آیتم» را مستقلاً تکمیل کرده باشد.
  * خروجی: آیا وظیفه در این فراخوانی COMPLETED شد؟
  */
 export async function completeTaskWhenAllItemsDone(
@@ -213,14 +260,26 @@ export async function completeTaskWhenAllItemsDone(
   completedById: string,
   completionNote: string | null
 ): Promise<boolean> {
-  const remaining = await db.dailyTaskItem.count({ where: { taskId, isCompleted: false } })
-  if (remaining > 0) return false
-
   const task = await db.dailyTask.findUnique({
     where: { id: taskId },
-    select: { id: true, status: true, title: true, projectId: true, createdById: true },
+    select: { id: true, status: true, title: true, projectId: true, createdById: true, assignees: { select: { userId: true } } },
   })
   if (!task || task.status === 'COMPLETED' || task.status === 'CANCELLED') return false
+  if (task.assignees.length === 0) return false
+
+  // هر آیتم باید توسط همهٔ گیرنده‌ها انجام شده باشد (شمارش انجام‌های مستقل)
+  const items = await db.dailyTaskItem.findMany({
+    where: { taskId },
+    select: { id: true, isCompleted: true, _count: { select: { completions: { where: { isCompleted: true } } } } },
+  })
+  if (items.length === 0) return false
+  const allDone = items.every((i) => i._count.completions >= task.assignees.length)
+  if (!allDone) return false
+
+  // پرچم اشتراکی آیتم‌ها را با واقعیتِ مستقل همگام نگه می‌داریم
+  for (const i of items) {
+    if (!i.isCompleted) await db.dailyTaskItem.update({ where: { id: i.id }, data: { isCompleted: true, completedAt: new Date() } })
+  }
 
   const now = new Date()
   await db.dailyTask.update({
@@ -264,6 +323,10 @@ export const taskDetailInclude = {
     orderBy: [{ sortOrder: 'asc' as const }, { createdAt: 'asc' as const }],
     include: {
       completedBy: { select: { id: true, fullName: true } },
+      // Item ۸: انجام مستقل هر آیتم توسط هر گیرنده
+      completions: {
+        select: { id: true, userId: true, isCompleted: true, completedAt: true, completionNote: true },
+      },
       photos: {
         select: { id: true, fileName: true, mimeType: true, size: true, storagePath: true, createdAt: true, uploadedBy: { select: { fullName: true } } },
         orderBy: { createdAt: 'asc' as const },

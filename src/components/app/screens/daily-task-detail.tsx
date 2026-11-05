@@ -16,6 +16,13 @@ import { formatJalaliDateTime, formatJalaliTehran, formatRelative, toFa } from '
 import { cn } from '@/lib/utils'
 import { ERROR_MSG } from '@/components/app/messages'
 
+// Item ۱0—c: فیلتر آیتم‌های هر تب — همان الگوی چیپ فیلتر (همه / انجام‌شده / باقی‌مانده)
+const ITEM_FILTERS = [
+  { key: 'all', label: 'همه' },
+  { key: 'done', label: 'انجام‌شده' },
+  { key: 'todo', label: 'باقی‌مانده' },
+] as const
+
 export default function DailyTaskDetailScreen({ params }: { params?: Record<string, unknown> }) {
   const id = typeof params?.id === 'string' ? params.id : null
   const [task, setTask] = useState<DailyTaskDetail | null>(null)
@@ -30,8 +37,12 @@ export default function DailyTaskDetailScreen({ params }: { params?: Record<stri
   const [cancelReason, setCancelReason] = useState('')
   const [uploadingItem, setUploadingItem] = useState<string | null>(null)
   const [preview, setPreview] = useState<{ id: string; url: string } | null>(null)
+  // Item ۱0—c: تب فعال برای نمایش انجامِ مستقل هر گیرنده + فیلتر آیتم‌های همان الگوی چیپ
+  const [activeTab, setActiveTab] = useState('')
+  const [itemFilter, setItemFilter] = useState<'all' | 'done' | 'todo'>('all')
   const back = useApp((s) => s.back)
   const navigate = useApp((s) => s.navigate)
+  const currentUserId = useApp((s) => s.session?.user.id)
 
   const load = useCallback(async () => {
     if (!id) return
@@ -188,6 +199,23 @@ export default function DailyTaskDetailScreen({ params }: { params?: Record<stri
     )
   }
 
+  // Item ۱0—c: گیرندهٔ تب فعال — پیش‌فرض خودِ کاربر (اگر گیرنده است)، وگرنه نخستین گیرنده
+  const activeAssignee =
+    task.assignees.find((a) => a.id === activeTab) ??
+    task.assignees.find((a) => a.id === currentUserId) ??
+    task.assignees[0] ??
+    null
+  const tabUserId = activeAssignee?.id ?? null
+  const isSelfTab = tabUserId !== null && tabUserId === currentUserId
+  // Item ۸: وضعیت انجام هر آیتم، فقط برای گیرندهٔ تب فعال
+  const tabRows = task.items.map((item, idx) => {
+    const completion = item.completions.find((c) => c.userId === tabUserId)
+    return { item, idx, done: completion?.isCompleted === true, completion: completion ?? null }
+  })
+  const tabDoneCount = tabRows.filter((r) => r.done).length
+  const visibleRows =
+    itemFilter === 'done' ? tabRows.filter((r) => r.done) : itemFilter === 'todo' ? tabRows.filter((r) => !r.done) : tabRows
+
   return (
     <div className="max-w-lg mx-auto pb-10">
       <ScreenHeader
@@ -244,6 +272,10 @@ export default function DailyTaskDetailScreen({ params }: { params?: Record<stri
 
           <div className="mt-3">
             <TaskProgress value={task.progress} />
+            {/* Item ۱0—b: میانگین پیشرفت همهٔ گیرنده‌ها (Item ۸) */}
+            {task.assignees.length > 1 ? (
+              <p className="text-[10px] text-muted-foreground mt-1">میانگین پیشرفت {toFa(task.assignees.length)} گیرنده</p>
+            ) : null}
           </div>
         </div>
 
@@ -259,7 +291,170 @@ export default function DailyTaskDetailScreen({ params }: { params?: Record<stri
           </div>
         ) : null}
 
-        {/* آیتم‌ها */}
+        {/* آیتم‌ها — Item ۱0—c: چند‌گیرنده → تب‌بندی هر گیرنده (Item ۸)؛ تک‌گیرنده → نمایش سادهٔ قبل */}
+        {task.assignees.length > 1 ? (
+          <div className="space-y-2.5">
+            <p className="text-sm font-semibold">آیتم‌های اجرایی به تفکیک گیرنده</p>
+
+            {/* تب گیرنده‌ها — هر شخص پیشرفت مستقل خودش را دارد */}
+            <div className="flex gap-2 overflow-x-auto no-scrollbar">
+              {task.assignees.map((a) => {
+                const isActive = (tabUserId ?? '') === a.id
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => setActiveTab(a.id)}
+                    className={cn(
+                      'shrink-0 rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors inline-flex items-center gap-1.5',
+                      isActive ? 'bg-accent text-accent-foreground border-accent' : 'bg-card border-border text-muted-foreground'
+                    )}
+                  >
+                    <span className="truncate max-w-32">{a.fullName}</span>
+                    <span
+                      className={cn(
+                        'rounded-full px-1.5 text-[10px] font-bold',
+                        isActive ? 'bg-accent-foreground/15' : 'bg-secondary text-secondary-foreground'
+                      )}
+                    >
+                      {toFa(a.progress)}٪
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* فیلتر آیتم‌های این تب — همان الگوی چیپ فیلترها */}
+            <div className="flex gap-2 overflow-x-auto no-scrollbar">
+              {ITEM_FILTERS.map((f) => (
+                <button
+                  key={f.key}
+                  type="button"
+                  onClick={() => setItemFilter(f.key)}
+                  className={cn(
+                    'shrink-0 rounded-full border px-3 py-1 text-[11px] font-medium transition-colors',
+                    itemFilter === f.key ? 'bg-accent text-accent-foreground border-accent' : 'bg-card border-border text-muted-foreground'
+                  )}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            {activeAssignee ? (
+              <div className="rounded-xl border border-border bg-card p-3 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{activeAssignee.fullName}</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      {toFa(tabDoneCount)} از {toFa(task.items.length)} آیتم انجام‌شده
+                    </p>
+                  </div>
+                  <div className="shrink-0 w-32">
+                    <TaskProgress value={activeAssignee.progress} />
+                  </div>
+                </div>
+
+                {isSelfTab ? (
+                  <div className="rounded-lg bg-blue-50 border border-blue-200 text-blue-700 px-2.5 py-1.5 text-[11px]">
+                    این تب انجام‌های خودتان است — تیک زدن هر آیتم فقط برای شما ثبت می‌شود.
+                  </div>
+                ) : (
+                  <div className="rounded-lg bg-secondary text-secondary-foreground px-2.5 py-1.5 text-[11px]">
+                    مشاهدهٔ پیشرفت {activeAssignee.fullName} — انجام‌های شما در تبِ خودتان ثبت می‌شود.
+                  </div>
+                )}
+
+                {task.items.length === 0 ? (
+                  <p className="text-xs text-muted-foreground px-1">این وظیفه آیتم مجزا ندارد — با دکمهٔ پایین کل وظیفه را تکمیل کنید.</p>
+                ) : visibleRows.length === 0 ? (
+                  <p className="text-xs text-muted-foreground py-3 text-center">موردی با این فیلتر نیست.</p>
+                ) : (
+                  visibleRows.map(({ item, idx, done, completion }) => (
+                    <div
+                      key={item.id}
+                      className={cn('rounded-xl border p-3', done ? 'border-green-200 bg-green-50/50' : 'border-border bg-background')}
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <button
+                          type="button"
+                          disabled={!task.canComplete || !isSelfTab || busyItem !== null}
+                          onClick={() => (done ? void untickItem(item.id) : setNoteFor(item.id))}
+                          className={cn(
+                            'mt-0.5 size-6 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors',
+                            done
+                              ? 'bg-green-600 border-green-600'
+                              : task.canComplete && isSelfTab
+                                ? 'border-zinc-400 active:scale-95'
+                                : 'border-zinc-200 opacity-60'
+                          )}
+                          aria-label={done ? 'برداشتن تیک' : 'علامت‌زدن انجام‌شده'}
+                        >
+                          {done ? <Check className="size-4 text-white" /> : null}
+                          {busyItem === item.id ? <Loader2 className="size-4 animate-spin text-zinc-500 absolute" /> : null}
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <p className={cn('text-sm leading-6', done && 'line-through text-muted-foreground')}>
+                            {toFa(idx + 1)}. {item.title}
+                          </p>
+                          {item.description ? <p className="text-xs text-muted-foreground mt-0.5 leading-5">{item.description}</p> : null}
+                          {done && completion?.completedAt ? (
+                            <div className="flex items-center gap-2 mt-1 text-[11px] text-green-700">
+                              <Clock className="size-3" />
+                              {formatJalaliDateTime(completion.completedAt)}
+                            </div>
+                          ) : null}
+                          {completion?.completionNote ? (
+                            <p className="text-[11px] text-muted-foreground mt-0.5">توضیح: {completion.completionNote}</p>
+                          ) : null}
+
+                          {/* عکس‌های اثبات انجام — مشترک بین گیرنده‌ها */}
+                          {item.photos.length > 0 ? (
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                              {item.photos.map((p) => (
+                                <button
+                                  key={p.id}
+                                  type="button"
+                                  onClick={() => setPreview({ id: p.id, url: p.url })}
+                                  className="size-14 rounded-lg overflow-hidden border border-zinc-200 bg-zinc-100 flex items-center justify-center active:scale-95 transition-transform"
+                                  aria-label={`مشاهدهٔ عکس ${p.fileName}`}
+                                >
+                                  <img src={p.url} alt={p.fileName} className="size-full object-cover" loading="lazy" />
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+
+                          {task.canComplete && isSelfTab ? (
+                            <label
+                              className={cn(
+                                'inline-flex items-center gap-1.5 text-[11px] text-blue-700 border border-blue-200 bg-blue-50 rounded-lg px-2 py-1 mt-2 cursor-pointer select-none',
+                                uploadingItem === item.id && 'opacity-60 pointer-events-none'
+                              )}
+                            >
+                              {uploadingItem === item.id ? <Loader2 className="size-3.5 animate-spin" /> : <Camera className="size-3.5" />}
+                              {item.photos.length > 0 ? 'افزودن عکس بیشتر' : 'عکس اثبات انجام'}
+                              <input
+                                type="file"
+                                accept="image/jpeg,image/png,image/webp,image/heic"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const f = e.target.files?.[0]
+                                  e.target.value = ''
+                                  if (f) void uploadPhoto(item.id, f)
+                                }}
+                              />
+                            </label>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            ) : null}
+          </div>
+        ) : (
         <div className="space-y-2">
           <p className="text-sm font-semibold">
             آیتم‌های اجرایی {task.items.length > 0 ? `(${toFa(task.items.filter((i) => i.isCompleted).length)} از ${toFa(task.items.length)})` : ''}
@@ -342,6 +537,7 @@ export default function DailyTaskDetailScreen({ params }: { params?: Record<stri
             ))
           )}
         </div>
+        )}
 
         {/* یادداشت تکمیل کل */}
         {task.canComplete ? (
@@ -349,7 +545,8 @@ export default function DailyTaskDetailScreen({ params }: { params?: Record<stri
             <Textarea value={noteText} onChange={(e) => setNoteText(e.target.value)} rows={2} placeholder="توضیح انجام کار (اختیاری)" className="bg-card leading-7" maxLength={500} />
             <Button type="button" className="w-full h-12 bg-green-600 hover:bg-green-500 text-white" onClick={() => void completeAll()} disabled={busyAction}>
               {busyAction ? <Loader2 className="size-4 animate-spin" /> : <CheckCheck className="size-4" />}
-              تکمیل همهٔ آیتم‌ها و پایان وظیفه
+              {/* Item ۸: چند‌گیرنده → ثبت انجام برای خودِ کاربر (پایان وظیفه وقتی همه تکمیل کنند) */}
+              {task.assignees.length > 1 ? 'تکمیل همهٔ آیتم‌ها برای خودم' : 'تکمیل همهٔ آیتم‌ها و پایان وظیفه'}
             </Button>
           </div>
         ) : null}

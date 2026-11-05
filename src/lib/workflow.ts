@@ -19,7 +19,7 @@ import {
 import { ENTRY_STAGE_LABELS, ENTRY_DIRECTIONS } from '@/lib/permissions'
 import { dispatchForNotificationRow } from '@/lib/notify-channels'
 import { notifyUsers, type DailyNotificationType } from '@/lib/notify'
-import { applyEntryStock } from '@/lib/inventory'
+import { applyEntryStock, findOutStockShortages } from '@/lib/inventory'
 
 // ─────────────────────────── تاریخچهٔ مراحل (Stage Log) ───────────────────────────
 
@@ -314,6 +314,32 @@ async function notifyEntryStakeholders(
 }
 
 // ─────────────────────────── عملیات Workflow ───────────────────────────
+
+/**
+ * Item ۱ — مسدودسازی ارسال خروج با موجودی ناکافی.
+ * برخلاف applyEntryStock (که در زمان تأیید انبار فقط مغایرت ثبت می‌کند)، این نگهبان
+ * «قبل از ارسال» تمام اقلام خروج را در برابر موجودی انبار کارگاهِ ثبت بررسی می‌کند و
+ * در صورت کمبود هر قلم، ارسال را با خطای ۴۲۲ رد می‌کند.
+ */
+export async function assertOutStockAvailable(entryId: string): Promise<void> {
+  const entry = await db.materialEntry.findUnique({
+    where: { id: entryId },
+    select: { direction: true, workshopId: true, items: { select: { materialName: true, unit: true, quantity: true } } },
+  })
+  if (!entry || entry.direction !== 'OUT') return
+  const shortages = await findOutStockShortages(entry.workshopId, entry.items)
+  if (shortages.length > 0) {
+    const detail = shortages
+      .map((s) => `${s.materialName} — درخواست: ${toFaQty(s.requested)} ${s.unit} / موجودی: ${toFaQty(s.available)} ${s.unit}`)
+      .join('؛ ')
+    throw new ApiError(422, 'INSUFFICIENT_STOCK', `موجودی انبار برای این خروج کافی نیست — ${detail}`)
+  }
+}
+
+/** قالب‌بندی عدد برای پیام خطا (فارسی) */
+function toFaQty(n: number): string {
+  return Number.isInteger(n) ? n.toLocaleString('fa-IR') : n.toLocaleString('fa-IR', { maximumFractionDigits: 3 })
+}
 
 /** ارسال ثبت برای بررسی مدیر — SUBMITTED (از DRAFT یا CORRECTION_REQUESTED→RESUBMITTED مسیر جدا دارد) */
 export async function submitEntry(entry: MaterialEntry, user: SessionUser, ip: string, ua: string): Promise<MaterialEntry> {

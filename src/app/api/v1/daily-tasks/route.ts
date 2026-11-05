@@ -5,7 +5,7 @@ import { createTaskSchema } from '@/lib/validate'
 import { writeAudit } from '@/lib/audit'
 import {
   dailyTaskScopeFilter,
-  progressPercent,
+  averageAssigneeProgress,
   sweepTaskDeadlines,
   tehranDayStart,
   tehranDayEnd,
@@ -77,7 +77,10 @@ export const GET = apiHandler(
           workshop: { select: { name: true } },
           createdBy: { select: { fullName: true } },
           assignees: { include: { user: { select: { id: true, fullName: true } } }, orderBy: { id: 'asc' } },
-          items: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] },
+          items: {
+            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+            select: { id: true, isCompleted: true, completions: { select: { userId: true, isCompleted: true } } },
+          },
         },
         orderBy: [{ assignedDate: 'desc' }, { createdAt: 'desc' }],
         skip: (page - 1) * pageSize,
@@ -106,7 +109,11 @@ export const GET = apiHandler(
           (t.status === 'PENDING' || t.status === 'IN_PROGRESS') && t.dueDate !== null && t.dueDate.getTime() < Date.now(),
         itemsCount: t.items.length,
         completedItemsCount: t.items.filter((i) => i.isCompleted).length,
-        progress: progressPercent(t.items),
+        // Item ۱0—b: میانگین پیشرفتِ همهٔ گیرنده‌ها (Item ۸ — تکمیل مستقل هر گیرنده)
+        progress: averageAssigneeProgress(
+          t.items.map((i) => ({ id: i.id, isCompleted: i.isCompleted, completions: i.completions })),
+          t.assignees.map((a) => a.user.id)
+        ),
         assignees: t.assignees.map((a) => ({ id: a.user.id, fullName: a.user.fullName })),
         createdAt: t.createdAt.toISOString(),
       })),

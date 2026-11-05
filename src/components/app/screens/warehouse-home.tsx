@@ -11,6 +11,8 @@ import {
   CheckCircle2,
   Loader2,
   BellRing,
+  ListTodo,
+  FileText,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -214,6 +216,26 @@ export default function WarehouseHome() {
               <span className="block text-[11px] text-muted-foreground mt-0.5">برای سرپرست کارگاه ارسال می‌شود</span>
             </button>
           ) : null}
+          {/* Item ۶ — دسترسی انباردار به وظایف روزانهٔ محول‌شده (همان مسیر سرپرستان) */}
+          <button
+            type="button"
+            onClick={() => navigate('daily-tasks')}
+            className="rounded-xl border border-border bg-card p-3.5 text-right active:scale-[0.99] transition-transform"
+          >
+            <ListTodo className="size-5 text-blue-600 mb-1.5" />
+            <span className="block text-sm font-medium">وظایف روزانه</span>
+            <span className="block text-[11px] text-muted-foreground mt-0.5">مشاهده و تکمیل وظایف محول‌شده</span>
+          </button>
+          {/* Item ۴ — ثبت گزارش روزانه توسط انباردار (همان فرم سایر نقش‌ها) */}
+          <button
+            type="button"
+            onClick={() => navigate('daily-report-form')}
+            className="rounded-xl border border-border bg-card p-3.5 text-right active:scale-[0.99] transition-transform"
+          >
+            <FileText className="size-5 text-violet-600 mb-1.5" />
+            <span className="block text-sm font-medium">ثبت گزارش روزانه</span>
+            <span className="block text-[11px] text-muted-foreground mt-0.5">گزارش کار روز خود را ثبت کنید</span>
+          </button>
         </div>
 
         {/* صف تأیید انبار */}

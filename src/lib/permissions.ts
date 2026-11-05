@@ -124,18 +124,29 @@ export const ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
     'audit.view',
     'reports.view',
     'task.view',
+    // Item ۶: انباردار وظایف محول‌شدهٔ خود را تکمیل می‌کند (مثل سرپرست)
+    'task.complete',
+    // Item ۴: انباردار گزارش روزانه ثبت می‌کند (مثل سایر نقش‌ها)
+    'report.create',
+    'report.edit',
+    'report.submit',
+    'report.view',
     'purchase.view',
     'purchase.receive',
     'inventory.view',
     'inventory.manage',
     'inventory.discrepancy',
     'workreport.view',
+    // Item ۴: ثبت گزارش کار کارگر توسط انباردار
+    'workreport.create',
   ],
   // کارگر — فقط وظایف و گزارش کار خودش
   FIELD_WORKER: [
     'workreport.view',
     'workreport.create',
     'task.view',
+    // Item ۶: کارگر وظایف محول‌شدهٔ خودش را علامت می‌زند
+    'task.complete',
   ],
 }
 

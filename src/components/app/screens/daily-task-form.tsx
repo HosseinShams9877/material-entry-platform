@@ -101,13 +101,28 @@ export default function DailyTaskForm({ params }: { params?: Record<string, unkn
     [md, workshopId]
   )
   const workshopOptions = useMemo(() => (md?.workshops ?? []).map((w) => ({ id: w.id, label: w.name, hint: w.code })), [md])
-  const supervisorOptions = useMemo(
-    () =>
-      (md?.supervisors ?? [])
-        .filter((s) => !workshopId || s.workshopId === workshopId)
-        .map((s) => ({ id: s.id, label: s.fullName })),
-    [md, workshopId]
-  )
+  // Item ۵—b: گیرنده = هر کاربر فعال با دسترسی به کارگاه یا پروژهٔ انتخاب‌شده (کارگاه اصلی یا دسترسی چند-کارگاهی/پروژه‌ای)
+  const supervisorOptions = useMemo(() => {
+    const list = md?.supervisors ?? []
+    return list
+      .filter((s) => {
+        const inWorkshop =
+          !workshopId ||
+          s.workshopId === workshopId ||
+          s.userWorkshops?.some((w) => w.workshopId === workshopId) ||
+          false
+        const inProject =
+          !projectId || (s.userProjects?.some((p) => p.projectId === projectId) ?? false)
+        // اگر پروژه انتخاب شده، اولویت با دسترسی به پروژه است؛ در غیر این‌صورت دسترسی به کارگاه
+        if (projectId) return inProject || inWorkshop
+        return inWorkshop
+      })
+      .map((s) => {
+        const roleLabel =
+          s.role === 'FIELD_WORKER' ? 'کارگر' : s.role === 'WAREHOUSE_KEEPER' ? 'انباردار' : 'سرپرست'
+        return { id: s.id, label: s.fullName, hint: roleLabel }
+      })
+  }, [md, workshopId, projectId])
 
   function addManualItem() {
     const t = newItemTitle.trim()
@@ -174,12 +189,12 @@ export default function DailyTaskForm({ params }: { params?: Record<string, unkn
         toast.success('ویرایش برای گیرندگان ارسال شد.')
       } else if (sendAfter && taskId) {
         if (assigneeIds.length === 0) {
-          toast.error('برای ارسال، حداقل یک سرپرست انتخاب کنید.')
+          toast.error('برای ارسال، حداقل یک گیرنده انتخاب کنید.')
           setSaving(false)
           return
         }
         await api.post(`/api/v1/daily-tasks/${taskId}/send`, { assigneeIds })
-        toast.success('وظیفه برای سرپرستان ارسال شد.')
+        toast.success('وظیفه برای گیرندگان ارسال شد.')
       } else {
         toast.success(sendAfter === false && !editId ? 'پیش‌نویس ذخیره شد.' : 'وظیفه به‌روزرسانی شد.')
       }
@@ -209,7 +224,7 @@ export default function DailyTaskForm({ params }: { params?: Record<string, unkn
     <div className="max-w-lg mx-auto pb-8">
       <ScreenHeader
         title={editId ? 'ویرایش وظیفه' : 'وظیفهٔ روزانه جدید'}
-        subtitle={editId && editWasSent ? 'ویرایش برای گیرندگان اعلان می‌شود' : 'پس از ارسال، سرپرست اعلان دریافت می‌کند'}
+        subtitle={editId && editWasSent ? 'ویرایش برای گیرندگان اعلان می‌شود' : 'پس از ارسال، گیرنده‌ها اعلان دریافت می‌کنند'}
         onBack={back}
       />
 
@@ -227,7 +242,7 @@ export default function DailyTaskForm({ params }: { params?: Record<string, unkn
         </div>
 
         <button type="button" onClick={() => setSheet('assignees')} className="w-full rounded-xl border border-border bg-card p-3 text-right min-h-16">
-          <span className="block text-[11px] text-muted-foreground mb-1">سرپرست یا سرپرستان (گیرنده)</span>
+          <span className="block text-[11px] text-muted-foreground mb-1">گیرنده‌ها (سرپرست، انباردار یا کارگر)</span>
           <span className="block text-sm font-medium truncate">
             {assigneeNames.length > 0 ? assigneeNames.join('، ') : 'انتخاب کنید'}
           </span>
@@ -283,7 +298,7 @@ export default function DailyTaskForm({ params }: { params?: Record<string, unkn
           {items.length === 0 ? (
             <p className="text-xs text-muted-foreground pb-2">هیچ آیتمی اضافه نشده است — از کادر پایین اضافه کنید.</p>
           ) : (
-            <div className="space-y-2 mb-2">
+            <div className="space-y-2 mb-2 max-h-[40dvh] overflow-y-auto">
               {items.map((it, idx) => (
                 <div key={it.key} className="rounded-lg border border-border bg-background/60 p-2.5">
                   <div className="flex items-start gap-2">
@@ -382,7 +397,7 @@ export default function DailyTaskForm({ params }: { params?: Record<string, unkn
       <SelectionSheet
         open={sheet === 'assignees'}
         onOpenChange={(v) => setSheet(v ? 'assignees' : null)}
-        title="انتخاب سرپرستان"
+        title="انتخاب گیرندگان"
         options={supervisorOptions}
         selected={assigneeIds}
         multi

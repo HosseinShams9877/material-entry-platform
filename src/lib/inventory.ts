@@ -145,6 +145,45 @@ export async function applyStockOut(
   }
 }
 
+// ─────────────────────────── Item ۱: بررسی موجودی پیش از ثبت خروج ───────────────────────────
+// برخلاف applyStockOut که در صورت کمبود فقط «مغایرت» ثبت می‌کند و جریان را ادامه می‌دهد،
+// این تابع برای مسدود کردن ارسال خروج استفاده می‌شود — موجودی هر قلم (با تجمیع اقلام تکراری
+// با همان نام/واحد) در برابر مقدار درخواستی بررسی می‌شود.
+
+export interface StockShortage {
+  materialName: string
+  unit: string
+  requested: number
+  available: number
+}
+
+/** بررسی موجودی انبار کارگاه برای اقلام خروجی — لیست اقلام دارای کمبود را برمی‌گرداند. */
+export async function findOutStockShortages(
+  workshopId: string,
+  items: Array<{ materialName: string; unit: string; quantity: number }>
+): Promise<StockShortage[]> {
+  // تجمیع اقلام تکراری با همان نام/واحد — خروج دو ردیف از یک مصالح باید روی یک خط موجودی سنجیده شود
+  const aggregated = new Map<string, { materialName: string; unit: string; quantity: number }>()
+  for (const it of items) {
+    if (!it.materialName.trim() || !(it.quantity > 0)) continue
+    const key = `${it.materialName.trim()}|${it.unit}`
+    const prev = aggregated.get(key)
+    if (prev) prev.quantity += it.quantity
+    else aggregated.set(key, { materialName: it.materialName.trim(), unit: it.unit, quantity: it.quantity })
+  }
+  const shortages: StockShortage[] = []
+  for (const it of aggregated.values()) {
+    const stock = await db.inventoryStock.findUnique({
+      where: { workshopId_materialName_unit: { workshopId, materialName: it.materialName, unit: it.unit } },
+    })
+    const available = stock?.quantity ?? 0
+    if (available < it.quantity) {
+      shortages.push({ materialName: it.materialName, unit: it.unit, requested: it.quantity, available })
+    }
+  }
+  return shortages
+}
+
 /** اعمال موجودی ثبت مصالح روی انبار کارگاه — بسته به جهت: IN افزایش، OUT کاهش */
 export async function applyEntryStock(
   entry: {

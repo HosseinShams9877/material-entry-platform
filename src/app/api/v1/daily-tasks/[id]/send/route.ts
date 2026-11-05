@@ -26,16 +26,20 @@ export const POST = apiHandler(
     // گیرنده‌ها: از بدنه یا گیرنده‌های ثبت‌شدهٔ پیش‌نویس
     const targetIds = body.assigneeIds ?? existing.assignees.map((a) => a.userId)
     if (targetIds.length === 0) {
-      throw new ApiError(422, 'NO_ASSIGNEE', 'حداقل یک سرپرست باید انتخاب شود.')
+      throw new ApiError(422, 'NO_ASSIGNEE', 'حداقل یک گیرنده باید انتخاب شود.')
     }
 
-    // گیرنده باید سرپرست یا انباردار فعالِ همان کارگاه باشد — جعل شناسه رد می‌شود
+    // گیرنده باید سرپرست، انباردار یا کارگرِ فعالِ با دسترسی به این کارگاه/پروژه باشد — جعل شناسه رد می‌شود (Item ۷)
     const validAssignees = await db.user.findMany({
       where: {
         id: { in: targetIds },
         isActive: true,
-        role: { in: ['SITE_SUPERVISOR', 'WAREHOUSE_KEEPER'] },
-        OR: [{ workshopId: existing.workshopId }, { userWorkshops: { some: { workshopId: existing.workshopId } } }],
+        role: { in: ['SITE_SUPERVISOR', 'WAREHOUSE_KEEPER', 'FIELD_WORKER'] },
+        OR: [
+          { workshopId: existing.workshopId },
+          { userWorkshops: { some: { workshopId: existing.workshopId } } },
+          { userProjects: { some: { projectId: existing.projectId } } },
+        ],
       },
       select: { id: true, fullName: true },
     })

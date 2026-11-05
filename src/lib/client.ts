@@ -263,7 +263,15 @@ export interface AuditLogItem {
 // ─────────────────────────── ماژول وظایف و گزارش روزانه ───────────────────────────
 
 export interface MasterDataWithSupervisors extends MasterData {
-  supervisors: Array<{ id: string; fullName: string; workshopId: string | null }>
+  // Item ۵—b: گیرنده‌های ممکن = همهٔ کسانی که به کارگاه/پروژهٔ انتخاب‌شده دسترسی دارند (نه فقط کارگاه اصلی)
+  supervisors: Array<{
+    id: string
+    fullName: string
+    workshopId: string | null
+    role: string
+    userWorkshops: Array<{ workshopId: string }>
+    userProjects: Array<{ projectId: string }>
+  }>
 }
 
 export interface DailyTaskListItem {
@@ -310,8 +318,17 @@ export interface DailyTaskDetail {
   completionNote: string | null
   cancelReason: string | null
   isOverdue: boolean
+  /** Item ۱0—b: میانگین پیشرفت همهٔ گیرنده‌ها */
   progress: number
-  assignees: Array<{ id: string; fullName: string; seenAt: string | null }>
+  assignees: Array<{
+    id: string
+    fullName: string
+    seenAt: string | null
+    completedAt: string | null
+    completionNote: string | null
+    /** Item ۸: درصد پیشرفت مستقل این گیرنده */
+    progress: number
+  }>
   items: Array<{
     id: string
     title: string
@@ -321,6 +338,13 @@ export interface DailyTaskDetail {
     completedAt: string | null
     completedByName: string | null
     completionNote: string | null
+    /** Item ۸: انجام مستقل این آیتم توسط هر گیرنده — کلید userId */
+    completions: Array<{
+      userId: string
+      isCompleted: boolean
+      completedAt: string | null
+      completionNote: string | null
+    }>
     photos: Array<{
       id: string
       fileName: string

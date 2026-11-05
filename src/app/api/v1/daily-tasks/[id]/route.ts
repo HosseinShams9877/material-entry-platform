@@ -3,7 +3,7 @@ import { apiHandler, ok, ApiError } from '@/lib/api'
 import { getUserScope } from '@/lib/scope'
 import { updateTaskSchema } from '@/lib/validate'
 import { writeAudit } from '@/lib/audit'
-import { canAccessTask, progressPercent, taskDetailInclude, tehranDayStart } from '@/lib/daily'
+import { canAccessTask, taskDetailInclude, tehranDayStart, assigneeProgressPercent, averageAssigneeProgress } from '@/lib/daily'
 import { notifyUsers } from '@/lib/notify'
 import { hasPermission } from '@/lib/permissions'
 import { publicFileUrl } from '@/lib/upload'
@@ -72,11 +72,21 @@ export const GET = apiHandler(
           (task.status === 'PENDING' || task.status === 'IN_PROGRESS') &&
           task.dueDate !== null &&
           task.dueDate.getTime() < Date.now(),
-        progress: progressPercent(task.items),
+        // Item ۱0—b: میانگین پیشرفت همهٔ گیرنده‌ها + پیشرفت مستقل هر گیرنده (Item ۸)
+        progress: averageAssigneeProgress(
+          task.items.map((i) => ({ id: i.id, isCompleted: i.isCompleted, completions: i.completions })),
+          task.assignees.map((a) => a.user.id)
+        ),
         assignees: task.assignees.map((a) => ({
           id: a.user.id,
           fullName: a.user.fullName,
           seenAt: a.seenAt?.toISOString() ?? null,
+          completedAt: a.completedAt?.toISOString() ?? null,
+          completionNote: a.completionNote,
+          progress: assigneeProgressPercent(
+            task.items.map((i) => ({ id: i.id, isCompleted: i.isCompleted, completions: i.completions })),
+            a.user.id
+          ),
         })),
         items: task.items.map((i) => ({
           id: i.id,
@@ -87,6 +97,13 @@ export const GET = apiHandler(
           completedAt: i.completedAt?.toISOString() ?? null,
           completedByName: i.completedBy?.fullName ?? null,
           completionNote: i.completionNote,
+          // Item ۸: انجام مستقل هر آیتم توسط هر گیرنده — کلید userId
+          completions: i.completions.map((c) => ({
+            userId: c.userId,
+            isCompleted: c.isCompleted,
+            completedAt: c.completedAt?.toISOString() ?? null,
+            completionNote: c.completionNote,
+          })),
           photos: (i.photos ?? []).map((p) => ({
             id: p.id,
             fileName: p.fileName,

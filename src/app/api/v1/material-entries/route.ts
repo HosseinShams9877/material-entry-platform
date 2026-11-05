@@ -4,6 +4,12 @@ import { getUserScope, entryScopeFilter } from '@/lib/scope'
 import { writeAudit } from '@/lib/audit'
 import { buildSnapshot } from '@/lib/workflow'
 import { createEntrySchema } from '@/lib/validate'
+import { findOutStockShortages } from '@/lib/inventory'
+
+/** قالب‌بندی عدد برای پیام خطا (فارسی) */
+function toFaQty(n: number): string {
+  return Number.isInteger(n) ? n.toLocaleString('fa-IR') : n.toLocaleString('fa-IR', { maximumFractionDigits: 3 })
+}
 
 // ─────────────────────────── GET /material-entries — لیست با Pagination و فیلتر ───────────────────────────
 
@@ -204,6 +210,24 @@ export const POST = apiHandler(
         effectiveWorkshopId = project.workshopId
       }
     }
+    // Item ۱ — ثبت خروج همراه با ارسال بی‌درنگ: موجودی هر قلم در انبار کارگاه بررسی می‌شود
+    const submitNow = input.status === 'SUBMITTED'
+    if (submitNow && (input.direction ?? 'IN') === 'OUT') {
+      const shortages = await findOutStockShortages(
+        effectiveWorkshopId,
+        input.items.map((it: { materialName: string; unit: string; quantity: number }) => ({
+          materialName: it.materialName,
+          unit: it.unit,
+          quantity: it.quantity,
+        }))
+      )
+      if (shortages.length > 0) {
+        const detail = shortages
+          .map((s) => `${s.materialName} — درخواست: ${toFaQty(s.requested)} ${s.unit} / موجودی: ${toFaQty(s.available)} ${s.unit}`)
+          .join('؛ ')
+        throw new ApiError(422, 'INSUFFICIENT_STOCK', `موجودی انبار برای این خروج کافی نیست — ${detail}`)
+      }
+    }
     if (input.sourceType === 'SUPPLIER' && input.sourceSupplierId) {
       // تأمین‌کننده چند-کارگاهی — کارگاه اصلی یا هر‌یک از کارگاه‌های assign‌شده
       const supplier = await db.supplier.findFirst({
@@ -234,7 +258,6 @@ export const POST = apiHandler(
     }
 
     const hasInvoice = input.hasInvoice
-    const submitNow = input.status === 'SUBMITTED'
     const now = new Date()
 
     // تولید شماره ثبت اتمیک: findFirst+1 داخل تراکنش؛ در صورت تداخل هم‌زمانی

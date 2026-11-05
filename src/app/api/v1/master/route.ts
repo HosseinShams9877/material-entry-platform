@@ -45,15 +45,33 @@ export const GET = apiHandler(async ({ user }) => {
     db.worker.findMany({ where: { isActive: true, ...mdFilter }, select: { id: true, fullName: true, kind: true }, orderBy: { fullName: 'asc' } }),
     db.materialUnit.findMany({ select: { id: true, title: true }, orderBy: { title: 'asc' } }),
     // سرپرستانِ در دسترس مدیر کارگاه — برای ارسال وظیفهٔ روزانه (Scope-aware)
+    // گیرندگانِ در دسترس مدیر — سرپرست، انباردار و کارگر (Item ۷) — برای ارسال وظیفهٔ روزانه (Scope-aware)
+    // همهٔ کسانی که به کارگاه یا پروژه‌های در دسترس کاربر دسترسی دارند (Item ۵—b)
     db.user.findMany({
       where: {
         isActive: true,
-        role: { in: ['SITE_SUPERVISOR', 'WAREHOUSE_KEEPER'] },
+        role: { in: ['SITE_SUPERVISOR', 'WAREHOUSE_KEEPER', 'FIELD_WORKER'] },
         ...(scope.isGlobal
           ? {}
-          : { OR: [{ workshopId: { in: scope.workshopIds.length ? scope.workshopIds : ['__none__'] } }, { userWorkshops: { some: { workshopId: { in: scope.workshopIds } } } }] }),
+          : {
+              OR: [
+                { workshopId: { in: scope.workshopIds.length ? scope.workshopIds : ['__none__'] } },
+                { userWorkshops: { some: { workshopId: { in: scope.workshopIds } } } },
+                ...(scope.projectIds && scope.projectIds.length > 0
+                  ? [{ userProjects: { some: { projectId: { in: scope.projectIds } } } }]
+                  : []),
+              ],
+            }),
       },
-      select: { id: true, fullName: true, workshopId: true, role: true },
+      select: {
+        id: true,
+        fullName: true,
+        workshopId: true,
+        role: true,
+        // Item ۵—b: دسترسی‌های کارگاه/پروژه برای فیلتر سمت کلاینت بر اساس پروژهٔ انتخاب‌شده
+        userWorkshops: { select: { workshopId: true } },
+        userProjects: { select: { projectId: true } },
+      },
       orderBy: { fullName: 'asc' },
     }),
   ])

@@ -363,11 +363,11 @@ const NAV_ITEMS_WORKER = [
   { name: 'profile', label: 'بیشتر', icon: MoreHorizontal },
 ] as const
 
-/** ناوبری اختصاصی انباردار — پنل جداگانه انبار: خانهٔ انبار، ثبت یکپارچه، صف تأیید، اعلان‌ها، بیشتر */
+/** ناوبری اختصاصی انباردار — پنل جداگانه انبار: خانهٔ انبار، ثبت یکپارچه، وظایف روزانه (Item 6)، صف تأیید، موجودی، اعلان‌ها، بیشتر */
 const NAV_ITEMS_WAREHOUSE = [
   { name: 'warehouse-home', label: 'انبار', icon: Warehouse },
   { name: 'entry-project-select', label: 'ثبت', icon: PenLine },
-  { name: 'entry-history', label: 'ثبت‌ها', icon: ListChecks },
+  { name: 'daily-tasks', label: 'وظایف', icon: ListTodo },
   { name: 'pending-approvals', label: 'تأییدها', icon: ClipboardCheck },
   { name: 'inventory', label: 'موجودی', icon: Package },
   { name: 'notifications', label: 'اعلان‌ها', icon: Bell },

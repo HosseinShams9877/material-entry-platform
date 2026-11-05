@@ -50,6 +50,7 @@ model User {
   dailyTasksDone     DailyTask[]      @relation("DailyTaskCompleter")
   dailyItemDone      DailyTaskItem[]  @relation("DailyItemCompleter")
   dailyAssignments   TaskAssignee[]
+  taskItemCompletions TaskItemCompletion[]
   dailyReports       DailyReport[]    @relation("DailyReportReporter")
   dailyReportsReviewed DailyReport[]  @relation("DailyReportReviewer")
   dailyTaskComments  TaskComment[]
@@ -923,10 +924,31 @@ model TaskAssignee {
   taskId  String
   userId  String
   seenAt  DateTime?
+  // تکمیل مستقل هر گیرنده — Item ۸: وضعیت انجام مخصوص همین کاربر
+  completedAt     DateTime?
+  completionNote  String?
   task    DailyTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
   user    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([taskId, userId])
+  @@index([userId])
+}
+
+// انجام مستقل هر آیتم توسط هر گیرنده — Item ۸ (افزودنی / Non-destructive)
+model TaskItemCompletion {
+  id             String   @id @default(cuid())
+  itemId         String
+  userId         String
+  isCompleted    Boolean  @default(false)
+  completedAt    DateTime?
+  completionNote String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  item DailyTaskItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  user User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, userId])
   @@index([userId])
 }
 
@@ -946,6 +968,7 @@ model DailyTaskItem {
   task        DailyTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
   completedBy User?     @relation("DailyItemCompleter", fields: [completedById], references: [id])
   photos      TaskItemPhoto[]
+  completions TaskItemCompletion[]
 
   @@index([taskId, sortOrder])
   @@index([completedById])
